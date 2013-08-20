@@ -22,20 +22,24 @@ AUTOMAKE_OPTIONS = foreign no-dependencies
 
 ## Preload library
 ## This is how it should work but libtool is so broken
-#pkglib_LTLIBRARIES = libhoneyd.la 
-#libhoneyd_la_SOURCES = honeyd_overload.c atomicio.c fdpass.c fdpass.h
-#libhoneyd_la_LDFLAGS = -module -export-dynamic -avoid-version
+lib_LTLIBRARIES = libhoneyd.la libhoneyd.so
+libhoneyd_la_SOURCES = honeyd_overload.c atomicio.c fdpass.c fdpass.h
+libhoneyd_la_LDFLAGS = -module -export-dynamic -avoid-version
+
+libhoneyd_so_SOURCES = honeyd_overload.c atomicio.c fdpass.c fdpass.h
+libhoneyd_so_LDFLAGS = -module -avoid-version -nostdlib @LIBDL@
 
 ## Bad hack with help from marius@monkey.org to actually get this 
 ## working on Linux
-LIBHONEYDFILES= honeyd_overload.lo atomicio.lo fdpass.lo
-libhoneyd.so: $(LIBHONEYDFILES)
-	$(LIBTOOL) --mode=link $(CC) $(CFLAGS) -o libtmp$@.la \
-		-rpath $(libdir)/honeyd $(LIBHONEYDFILES) $(LIBS) $(LDFLAGS) \
-		-module -avoid-version -nostdlib @LIBDL@
-	rm -f libtmp$@.la tmp$@.so* $@
-	cp .libs/libtmp$@.so $@ || cp .libs/libtmp$@ $@
-	rm -f .libs/libtmp$@.*
+#LIBHONEYDFILES= honeyd_overload.lo atomicio.lo fdpass.lo
+#LIBHONEYDFILES= honeyd_overload.o atomicio.o fdpass.o
+#libhoneyd.so: $(LIBHONEYDFILES)
+#	$(LIBTOOL) --mode=link $(CC) $(CFLAGS) -o libtmp$@.la \
+#		-Wl,-rpath=$(libdir)/honeyd $(LIBHONEYDFILES) $(LIBS) $(LDFLAGS) \
+#		-module -avoid-version -nostdlib @LIBDL@
+#	rm -f libtmp$@.la tmp$@.so* $@
+#	cp .libs/libtmp$@.so $@ || cp .libs/libtmp$@ $@
+#	rm -f .libs/libtmp$@.*
 
 libhoneyddir = $(libdir)/honeyd
 libhoneyd_DATA = libhoneyd.so
@@ -92,6 +96,7 @@ honeyd_LDADD = @PYEXTEND@ @LIBOBJS@ @PYTHONLIB@ @EVENTLIB@ @PCAPLIB@ \
 
 # Allow plugins to use honeyd's functions:
 honeyd_LDFLAGS = -export-dynamic 
+honeyd_CFLAGS  = $(AM_CFLAGS)
 
 # Honeyd stats collector
 #

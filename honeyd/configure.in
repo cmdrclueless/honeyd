@@ -7,10 +7,11 @@ AC_CANONICAL_TARGET
 AC_CANONICAL_HOST
 
 AM_INIT_AUTOMAKE(honeyd, 1.5c)
-AM_CONFIG_HEADER(config.h:config.in)
+dnl AM_CONFIG_HEADER(config.h:config.in)
+AM_CONFIG_HEADER(config.h)
 AM_MAINTAINER_MODE
 
-AM_PROG_LIBTOOL
+AC_PROG_LIBTOOL
 
 dnl Initialize prefix.
 if test "$prefix" = "NONE"; then
@@ -592,9 +593,7 @@ main(int argc, char **argv)
 	memset(&a2.addr_ip, 1, sizeof(a2.addr_ip));
 
         exit(addr_cmp(&a1, &a2) > 0);
-}]])],[AC_MSG_RESULT(yes)],[
-        _au_m4_changequote([,])AC_ERROR(you need to install a more recent version of libdnet)
-],[AC_MSG_RESULT(yes)])
+}]])],[AC_MSG_RESULT(yes)],[AC_ERROR(you need to install a more recent version of libdnet)],[AC_MSG_RESULT(yes)])
 
         AC_MSG_CHECKING(for addr_net in libdnet)
         AC_LINK_IFELSE([AC_LANG_PROGRAM([[
@@ -606,9 +605,7 @@ main(int argc, char **argv)
 	struct addr a2;
 
 	addr_net(&a1, &a2);
-]])],[AC_MSG_RESULT(yes)],[
-        _au_m4_changequote([,])AC_ERROR(you need to install a more recent version of libdnet)
-])
+]])],[AC_MSG_RESULT(yes)],[AC_ERROR(you need to install a more recent version of libdnet) ])
 
 CFLAGS=""
 LIBS=""
@@ -725,27 +722,28 @@ if test "$HAVEMETHOD" = "no"; then
 fi
 
 if test "$HAVEMETHOD" = "no"; then
-   AC_MSG_ERROR(Couldn't figure out how to access libc)
+   AC_MSG_ERROR(Could not figure out how to access libc)
 fi
 
+pre_attribute_CFLAGS="$CFLAGS"
+CFLAGS="$CFLAGS -Werror"
 AC_MSG_CHECKING([checking for __attribute(__bounded__())])
 AC_COMPILE_IFELSE([
 	AC_LANG_SOURCE([[
 		int x(int a[5], int b[64])
 			__attribute((__bounded__(__minbytes,1,5)))
 			__attribute((__bounded__(__minbytes,2,64)));
-	]],
-	[[
+	
 		int x(int a[5], int b[64]) {
 			a[0] = b[0];
 			return a[0];
 		}
-	]]),
+	]])],
 	[ AC_MSG_RESULT(yes)
 	  AC_DEFINE(HAVE_BOUNDED_ATTRIBUTE, 1, [Set if the compiler supports the __bounded__ attribute]) ],
 	[ AC_MSG_RESULT(no) ]
-])
-
+)
+CFLAGS="$pre_attribute_CFLAGS"
 
 dnl ##################################################
 dnl # Plugin setup
