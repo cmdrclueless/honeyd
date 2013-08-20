@@ -751,9 +751,17 @@ if test "$HAVEMETHOD" = "no"; then
     dnl Make sure we use libld if necessary -- CPK
     LIBS="$LIBDL $LIBS"
 
-    dnl ugly, ugly hack		     
-    LIBCGUESS=`echo /lib/libc.so.*`
-    USRLIBCGUESS=`echo /usr/lib/libc.so*`
+    dnl ugly debian hack
+    if test `uname -m` = "x86_64" ; then
+       LIBCGUESS=`echo /lib/x86_64*/libc.so.*`
+       USRLIBCGUESS=`echo /usr/lib/x86_64*/libc.so*`
+    fi
+
+    if test -z "$LIBCGUESS" -a -z "$USRLIBCGUESS" ; then
+       dnl ugly, ugly hack		     
+       LIBCGUESS=`echo /lib/libc.so.*`
+       USRLIBCGUESS=`echo /usr/lib/libc.so*`
+    fi
     
     if test "$USRLIBCGUESS" = "/usr/lib/libc.so.*"; then
        USRLIBCGUESS=""
