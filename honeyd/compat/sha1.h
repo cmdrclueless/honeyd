@@ -17,23 +17,34 @@ typedef struct {
 
 #include <sys/cdefs.h>
 
+#ifdef HAVE_BOUNDED_ATTRIBUTE
+# define bounds_attribute(_a,_b,_c) \
+	__attribute__((__bounded__(_a,_b,_c)))
+#else
+# define bounds_attribute(_a,_b,_c) /* bounds check _a, _b, -c */
+#endif
+
 __BEGIN_DECLS
 void SHA1Transform(u_int32_t [5], const unsigned char [64])
-		__attribute__((__bounded__(__minbytes__,1,5)))
-		__attribute__((__bounded__(__minbytes__,2,64)));
+		bounds_attribute(__minbytes__,1,5)
+		bounds_attribute(__minbytes__,2,64);
 void SHA1Init(SHA1_CTX *);
 void SHA1Update(SHA1_CTX *, const unsigned char *, unsigned int)
-		__attribute__((__bounded__(__string__,2,3)));
+		bounds_attribute(__string__,2,3);
 void SHA1Final(unsigned char [20], SHA1_CTX *)
-		__attribute__((__bounded__(__minbytes__,1,20)));
+		bounds_attribute(__minbytes__,1,20);
 char *SHA1End(SHA1_CTX *, char *)
-		__attribute__((__bounded__(__minbytes__,2,41)));
+		bounds_attribute(__minbytes__,2,41);
 char *SHA1File(char *, char *)
-		__attribute__((__bounded__(__minbytes__,2,41)));
+		bounds_attribute(__minbytes__,2,41);
 char *SHA1Data(const unsigned char *, size_t, char *)
-		__attribute__((__bounded__(__string__,1,2)))
-		__attribute__((__bounded__(__minbytes__,3,41)));
+		bounds_attribute(__string__,1,2)
+		bounds_attribute(__minbytes__,3,41);
 __END_DECLS
+
+#ifdef bounds_attribute
+#undef bounds_attribute
+#endif
 
 #define SHA1_DIGESTSIZE       20
 #define SHA1_BLOCKSIZE        64

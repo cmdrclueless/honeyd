@@ -1,12 +1,13 @@
 # Process this file with autoconf to produce a configure script.
-AC_INIT(honeyd)
+AC_INIT([honeyd],[1.5c])
+AC_CONFIG_SRCDIR([honeyd])
 AC_CONFIG_SRCDIR(honeyd.c)
 
-AC_CANONICAL_SYSTEM
+AC_CANONICAL_TARGET
 AC_CANONICAL_HOST
 
 AM_INIT_AUTOMAKE(honeyd, 1.5c)
-AM_CONFIG_HEADER(config.h)
+AM_CONFIG_HEADER(config.h:config.in)
 AM_MAINTAINER_MODE
 
 AM_PROG_LIBTOOL
@@ -61,7 +62,7 @@ AC_ARG_WITH(libpcap,
 	PCAPINC="-I$withval -I$withval/bpf"
 	PCAPLIB="-L$withval -lpcap"
      else
-        AC_ERROR(pcap.h or libpcap.a not found in $withval)
+        AC_MSG_ERROR([pcap.h or libpcap.a not found in $withval])
      fi
      ;;
   esac ],
@@ -75,7 +76,7 @@ AC_ARG_WITH(libpcap,
      PCAPLIB="-lpcap"
   else
      AC_MSG_RESULT(no)
-     AC_ERROR(libpcap not found)
+     AC_MSG_ERROR([libpcap not found])
   fi
   AC_MSG_RESULT(yes)
 ]
@@ -100,7 +101,7 @@ AC_ARG_WITH(libdnet,
 [  --with-libdnet=DIR      use libdnet in DIR],
 [ case "$withval" in
   yes|no)
-     AC_ERROR([Please specify directory containing dnet-config when using --with-libdnet])
+     AC_MSG_ERROR([Please specify directory containing dnet-config when using --with-libdnet])
      ;;
   *)
      AC_MSG_CHECKING(for libdnet)
@@ -113,7 +114,7 @@ AC_ARG_WITH(libdnet,
 	DNETLIB="`$withval/bin/dnet-config --libs`"
      else
         AC_MSG_RESULT(no)
-        AC_ERROR(dnet-config not found in $withval/bin)
+        AC_MSG_ERROR([dnet-config not found in $withval/bin])
      fi
      ;;
   esac
@@ -121,7 +122,7 @@ AC_ARG_WITH(libdnet,
 [ dnl This is the default case so let's just use AC_PATH_PROG! --CPK.
   AC_PATH_PROG(dnetconfig, dnet-config, "no")
   if test "$dnetconfig" = "no"; then
-     AC_ERROR(dnet-config not found)
+     AC_MSG_ERROR([dnet-config not found])
   else
      DNETINC="`$dnetconfig --cflags`"
      DNETLIB="`$dnetconfig --libs`"
@@ -169,7 +170,7 @@ AC_ARG_WITH(libevent,
 	EVENTINC="-I$withval/include"
 	EVENTLIB="-L$withval/lib -levent"
      else
-        AC_ERROR(event.h or libevent.a not found in $withval)
+        AC_MSG_ERROR([event.h or libevent.a not found in $withval])
      fi
      ;;
   esac ],
@@ -183,7 +184,7 @@ AC_ARG_WITH(libevent,
      EVENTLIB="-levent"
   else
      AC_MSG_RESULT(no)
-     AC_ERROR(libevent not found)
+     AC_MSG_ERROR([libevent not found])
   fi
   AC_MSG_RESULT(yes) ]
 )
@@ -254,7 +255,7 @@ AC_ARG_WITH(libedit,
         EDITINC="-I$withval"
         EDITLIB="-L$withval -ledit"
      else
-        AC_ERROR(histedit.h or libedit.a not found in $withval)
+        AC_MSG_ERROR([histedit.h or libedit.a not found in $withval])
      fi
      ;;
   esac ],
@@ -294,7 +295,7 @@ AC_ARG_WITH(libreadline,
         EDITINC="-I$withval"
         EDITLIB="-L$withval -lreadline"
      else
-        AC_ERROR(readline/readline.h or libreadline.a not found in $withval)
+        AC_MSG_ERROR([readline/readline.h or libreadline.a not found in $withval])
      fi
      ;;
   esac ],
@@ -316,7 +317,7 @@ AC_SUBST(EDITLIB)
 fi
 
 if test -z "$EDITLIB" ; then
-	AC_ERROR(need either libedit or libreadline; install one of them)
+	AC_MSG_ERROR([need either libedit or libreadline; install one of them])
 fi
 
 dnl zlib is required
@@ -380,7 +381,7 @@ if test x"$PATH_PYTHON" != x -a x"$DO_PYTHON" = xdefine ; then
         PATH_PYTHON=$PATH_PYTHON24
         DO_PYTHON=define
       else
-        AC_ERROR(need at least Python 2.4)
+        AC_MSG_ERROR([need at least Python 2.4])
       fi
    else
       DO_PYTHON=define
@@ -488,8 +489,7 @@ fi
 dnl make sure we're using the real structure members and not defines
 AC_CACHE_CHECK([for msg_accrights field in struct msghdr],
 		ac_cv_have_accrights_in_msghdr, [
-	AC_TRY_RUN(
-		[
+	AC_RUN_IFELSE([AC_LANG_SOURCE([[
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <sys/uio.h>
@@ -501,10 +501,8 @@ struct msghdr m;
 m.msg_accrights = 0;
 exit(0);
 }
-		],
-		[ ac_cv_have_accrights_in_msghdr="yes" ],
-		[ ac_cv_have_accrights_in_msghdr="no" ]
-	)
+		]])],[ ac_cv_have_accrights_in_msghdr="yes" ],[ ac_cv_have_accrights_in_msghdr="no" 
+	],[])
 ])
 if test "x$ac_cv_have_accrights_in_msghdr" = "xyes" ; then
 	AC_DEFINE(HAVE_ACCRIGHTS_IN_MSGHDR,1 ,
@@ -512,21 +510,17 @@ if test "x$ac_cv_have_accrights_in_msghdr" = "xyes" ; then
 fi
 
 AC_MSG_CHECKING([for sun_len in socketaddr_un])
-AC_TRY_COMPILE([
+AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[
  #include <sys/types.h>
  #include <sys/socket.h>
- #include <sys/un.h>],
-  [struct sockaddr_un x; x.sun_len = 0],
-  [AC_MSG_RESULT([yes])
+ #include <sys/un.h>]], [[struct sockaddr_un x; x.sun_len = 0]])],[AC_MSG_RESULT([yes])
    AC_DEFINE(HAVE_SUN_LEN, 1, [Set if you have sun_len in socketaddr_un])
-  ],
-  AC_MSG_RESULT([no])
-)
+  ],[AC_MSG_RESULT(no)
+])
 
 AC_CACHE_CHECK([for msg_control field in struct msghdr],
 		ac_cv_have_control_in_msghdr, [
-	AC_TRY_RUN(
-		[
+	AC_RUN_IFELSE([AC_LANG_SOURCE([[
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <sys/uio.h>
@@ -538,10 +532,8 @@ struct msghdr m;
 m.msg_control = 0;
 exit(0);
 }
-		],
-		[ ac_cv_have_control_in_msghdr="yes" ],
-		[ ac_cv_have_control_in_msghdr="no" ]
-	)
+		]])],[ ac_cv_have_control_in_msghdr="yes" ],[ ac_cv_have_control_in_msghdr="no" 
+	],[])
 ])
 if test "x$ac_cv_have_control_in_msghdr" = "xyes" ; then
 	AC_DEFINE(HAVE_CONTROL_IN_MSGHDR,1,
@@ -582,9 +574,8 @@ else
 fi
 LIBS=$DNETLIB
 
-        AC_MSG_CHECKING(for working addr_cmp in libdnet)
-        AC_TRY_RUN(
-#include <sys/types.h>
+AC_MSG_CHECKING(for working addr_cmp in libdnet)
+AC_RUN_IFELSE([AC_LANG_SOURCE([[#include <sys/types.h>
 #include <stdlib.h>
 #include <dnet.h>
 int
@@ -601,37 +592,33 @@ main(int argc, char **argv)
 	memset(&a2.addr_ip, 1, sizeof(a2.addr_ip));
 
         exit(addr_cmp(&a1, &a2) > 0);
-}, AC_MSG_RESULT(yes), [
-        AC_ERROR(you need to install a more recent version of libdnet)
-], AC_MSG_RESULT(yes))
+}]])],[AC_MSG_RESULT(yes)],[
+        _au_m4_changequote([,])AC_ERROR(you need to install a more recent version of libdnet)
+],[AC_MSG_RESULT(yes)])
 
         AC_MSG_CHECKING(for addr_net in libdnet)
-        AC_TRY_LINK([
+        AC_LINK_IFELSE([AC_LANG_PROGRAM([[
 #include <sys/types.h>
 #include <stdlib.h>
 #include <dnet.h>
-],[
+]], [[
 	struct addr a1;
 	struct addr a2;
 
 	addr_net(&a1, &a2);
-], AC_MSG_RESULT(yes), [
-        AC_ERROR(you need to install a more recent version of libdnet)
-], AC_MSG_RESULT(yes))
+]])],[AC_MSG_RESULT(yes)],[
+        _au_m4_changequote([,])AC_ERROR(you need to install a more recent version of libdnet)
+])
 
 CFLAGS=""
 LIBS=""
 
 AC_CACHE_CHECK([for struct sockaddr_storage], ac_cv_have_struct_sockaddr_storage, [
-	AC_TRY_COMPILE(
-		[
+	AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[
 #include <sys/types.h>
 #include <sys/socket.h>
-		],
-		[ struct sockaddr_storage s; ],
-		[ ac_cv_have_struct_sockaddr_storage="yes" ],
-		[ ac_cv_have_struct_sockaddr_storage="no" ]
-	)
+		]], [[ struct sockaddr_storage s; ]])],[ ac_cv_have_struct_sockaddr_storage="yes" ],[ ac_cv_have_struct_sockaddr_storage="no" 
+	])
 ])
 if test "x$ac_cv_have_struct_sockaddr_storage" = "xyes" ; then
 	AC_DEFINE(HAVE_STRUCT_SOCKADDR_STORAGE, 1,
@@ -641,12 +628,9 @@ fi
 if test "$ac_cv_header_sys_socket_h" = yes ; then
 AC_MSG_CHECKING(for sa_len in sockaddr struct)
     AC_CACHE_VAL(ac_cv_sockaddr_has_sa_len,
-        AC_TRY_COMPILE([
+        AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[
 #       include <sys/types.h>
-#       include <sys/socket.h>],
-        [u_int i = sizeof(((struct sockaddr *)0)->sa_len)],
-        ac_cv_sockaddr_has_sa_len=yes,
-        ac_cv_sockaddr_has_sa_len=no))
+#       include <sys/socket.h>]], [[u_int i = sizeof(((struct sockaddr *)0)->sa_len)]])],[ac_cv_sockaddr_has_sa_len=yes],[ac_cv_sockaddr_has_sa_len=no]))
     AC_MSG_RESULT($ac_cv_sockaddr_has_sa_len)
     if test $ac_cv_sockaddr_has_sa_len = yes ; then
             AC_DEFINE(HAVE_SOCKADDR_SA_LEN, 1,
@@ -656,8 +640,7 @@ fi
 
 dnl check if underscores are needed
 AC_MSG_CHECKING(if underscores are needed for symbols)
-AC_TRY_RUN(
-#include <dlfcn.h>
+AC_RUN_IFELSE([AC_LANG_SOURCE([[#include <dlfcn.h>
 #include <stdio.h>
 
 int underscoreprobe(void) { return (31415); }
@@ -674,15 +657,13 @@ main(int argc, char **argv)
 		exit(0);
 
 	exit(1);	
-}, [AC_MSG_RESULT(yes)
-   AC_DEFINE(DL_NEED_UNDERSCORE, 1, [Do symbols need underscores?])],
-    AC_MSG_RESULT(no), AC_MSG_RESULT(no))
+}]])],[AC_MSG_RESULT(yes)
+   AC_DEFINE(DL_NEED_UNDERSCORE, 1, [Do symbols need underscores?])],[AC_MSG_RESULT(no)],[AC_MSG_RESULT(no)])
 
 HAVEMETHOD=no
 
 AC_MSG_CHECKING(if we can access libc without dlopen)
-AC_TRY_RUN(
-#include <dlfcn.h>
+AC_RUN_IFELSE([AC_LANG_SOURCE([[#include <dlfcn.h>
 #include <stdio.h>
 
 int
@@ -696,9 +677,9 @@ main(int argc, char **argv)
 		exit(0);
 
 	exit(1);
-}, [AC_MSG_RESULT(yes)
+}]])],[AC_MSG_RESULT(yes)
     AC_DEFINE(NODLOPEN, 1, [Do we need to call dlopen()?])
-    HAVEMETHOD=yes], AC_MSG_RESULT(no), AC_MSG_RESULT(no))
+    HAVEMETHOD=yes],[AC_MSG_RESULT(no)],[AC_MSG_RESULT(no)])
 
 if test "$HAVEMETHOD" = "no"; then
 
@@ -720,8 +701,7 @@ if test "$HAVEMETHOD" = "no"; then
     for TESTLIB in libc.so `echo $USRLIBCGUESS` `echo $LIBCGUESS`
     do
         AC_MSG_CHECKING(if we can access libc with $TESTLIB)
-        AC_TRY_RUN(
-        #include <dlfcn.h>
+        AC_RUN_IFELSE([AC_LANG_SOURCE([[#include <dlfcn.h>
         #include <stdio.h>
     
         int
@@ -733,10 +713,10 @@ if test "$HAVEMETHOD" = "no"; then
     	           exit(0);
     
             exit(1);
-        }, [AC_MSG_RESULT(yes)
+        }]])],[AC_MSG_RESULT(yes)
             AC_DEFINE_UNQUOTED(DLOPENLIBC, "$TESTLIB", 
 	    [Defines which libc to preload])
-	    HAVEMETHOD=yes], AC_MSG_RESULT(no), AC_MSG_RESULT(no))
+	    HAVEMETHOD=yes],[AC_MSG_RESULT(no)],[AC_MSG_RESULT(no)])
 
 	if test "$HAVEMETHOD" = "yes"; then
 	   break
@@ -747,6 +727,25 @@ fi
 if test "$HAVEMETHOD" = "no"; then
    AC_MSG_ERROR(Couldn't figure out how to access libc)
 fi
+
+AC_MSG_CHECKING([checking for __attribute(__bounded__())])
+AC_COMPILE_IFELSE([
+	AC_LANG_SOURCE([[
+		int x(int a[5], int b[64])
+			__attribute((__bounded__(__minbytes,1,5)))
+			__attribute((__bounded__(__minbytes,2,64)));
+	]],
+	[[
+		int x(int a[5], int b[64]) {
+			a[0] = b[0];
+			return a[0];
+		}
+	]]),
+	[ AC_MSG_RESULT(yes)
+	  AC_DEFINE(HAVE_BOUNDED_ATTRIBUTE, 1, [Set if the compiler supports the __bounded__ attribute]) ],
+	[ AC_MSG_RESULT(no) ]
+])
+
 
 dnl ##################################################
 dnl # Plugin setup
