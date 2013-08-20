@@ -47,6 +47,7 @@ send_fd(int socket, int fd, void *base, size_t len)
 	struct iovec vec;
 	char ch = '\0';
 	ssize_t n;
+	int *pfd;
 #ifndef HAVE_ACCRIGHTS_IN_MSGHDR
 	char tmp[CMSG_SPACE(sizeof(int))];
 	struct cmsghdr *cmsg;
@@ -63,7 +64,8 @@ send_fd(int socket, int fd, void *base, size_t len)
 	cmsg->cmsg_len = CMSG_LEN(sizeof(int));
 	cmsg->cmsg_level = SOL_SOCKET;
 	cmsg->cmsg_type = SCM_RIGHTS;
-	*(int *)CMSG_DATA(cmsg) = fd;
+	pfd = (int *)CMSG_DATA(cmsg);
+	*pfd = fd;
 #endif
 
 	if (base == NULL) {
@@ -101,6 +103,8 @@ receive_fd(int socket, void *base, size_t *len)
 	ssize_t n;
 	char ch;
 	int fd;
+        int *pfd;
+
 #ifndef HAVE_ACCRIGHTS_IN_MSGHDR
 	char tmp[CMSG_SPACE(sizeof(int))];
 	struct cmsghdr *cmsg;
@@ -145,7 +149,8 @@ receive_fd(int socket, void *base, size_t *len)
 	if (cmsg->cmsg_type != SCM_RIGHTS)
 		errx(1, "%s: expected type %d got %d", __func__,
 		    SCM_RIGHTS, cmsg->cmsg_type);
-	fd = (*(int *)CMSG_DATA(cmsg));
+	pfd = (int *)CMSG_DATA(cmsg);
+	fd = *pfd;
 #endif
 	return fd;
 #else
