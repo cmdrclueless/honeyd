@@ -1125,7 +1125,7 @@ accept(int sock, struct sockaddr *addr, socklen_t *addrlen)
 {
 	struct fd *nfd;
 	struct bundle bundle;
-	socklen_t salen;
+	size_t salen;
 	int fd;
 
 	INIT;
