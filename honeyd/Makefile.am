@@ -23,12 +23,14 @@ ACLOCAL_AMFLAGS  = -I m4
 
 ## Preload library
 ## This is how it should work but libtool is so broken
-lib_LTLIBRARIES = libhoneyd.la libhoneyd.so
+#lib_LTLIBRARIES = libhoneyd.la libhoneyd.so
+lib_LTLIBRARIES = libhoneyd.la
+
 libhoneyd_la_SOURCES = honeyd_overload.c atomicio.c fdpass.c fdpass.h
 libhoneyd_la_LDFLAGS = -module -export-dynamic -avoid-version
 
-libhoneyd_so_SOURCES = honeyd_overload.c atomicio.c fdpass.c fdpass.h
-libhoneyd_so_LDFLAGS = -module -avoid-version -nostdlib @LIBDL@
+#libhoneyd_so_SOURCES = honeyd_overload.c atomicio.c fdpass.c fdpass.h
+#libhoneyd_so_LDFLAGS = -module -avoid-version -nostdlib @LIBDL@
 
 ## Bad hack with help from marius@monkey.org to actually get this 
 ## working on Linux
