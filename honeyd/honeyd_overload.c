@@ -548,7 +548,7 @@ bind(int s, const struct sockaddr *name, socklen_t namelen)
 	}
 
 	nfd->flags &= ~FD_UNBOUND;
-	nfd->flags = FD_BOUND;
+	nfd->flags |= FD_BOUND;
 
 	DPRINTF((stderr, "%s: socket %d bound at port %d\n",
 		    __func__, s, port));
