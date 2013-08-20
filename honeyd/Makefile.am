@@ -11,6 +11,7 @@ endif
 SUBDIRS = . $(MAYBE_PYPCAP) $(MAYBE_PYDPKT) $(MAYBE_REGRESS)
 
 AUTOMAKE_OPTIONS = foreign no-dependencies
+ACLOCAL_AMFLAGS  = -I m4
 
 ########################################################################
 ##
