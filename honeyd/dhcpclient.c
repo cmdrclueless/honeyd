@@ -78,7 +78,7 @@
 #include <syslog.h>
 
 #include <dnet.h>
-#include <event.h>
+#include <event2/event.h>
 
 #include "honeyd.h"
 #include "interface.h"

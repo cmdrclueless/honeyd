@@ -52,95 +52,12 @@
 #include <syslog.h>
 #include <unistd.h>
 
-#include <event.h>
+#include <event2/event.h>
 #include <pcap.h>
 #include <dnet.h>
 
 #include "tagging.h"
 
-struct evbuffer *_buf;
-
-void
-tagging_init()
-{
-	_buf = evbuffer_new();
-}
-
-/* 
- * We encode integer's by nibbles; the first nibble contains the number
- * of significant nibbles - 1;  this allows us to encode up to 64-bit
- * integers.  This function is byte-order independent.
- */
-
-void
-encode_int(struct evbuffer *evbuf, uint32_t number)
-{
-	int off = 1, nibbles = 0;
-	uint8_t data[5];
-
-	memset(data, 0, sizeof(data));
-	while (number) {
-		if (off & 0x1)
-			data[off/2] = (data[off/2] & 0xf0) | (number & 0x0f);
-		else
-			data[off/2] = (data[off/2] & 0x0f) |
-			    ((number & 0x0f) << 4);
-		number >>= 4;
-		off++;
-	}
-
-	if (off > 2)
-		nibbles = off - 2;
-
-	/* Off - 1 is the number of encoded nibbles */
-	data[0] = (data[0] & 0x0f) | ((nibbles & 0x0f) << 4);
-
-	evbuffer_add(evbuf, data, (off + 1) / 2);
-}
-
-/*
- * Marshal a data type, the general format is as follows:
- *
- * tag number: one byte; length: var bytes; payload: var bytes
- */
-
-void
-tag_marshal(struct evbuffer *evbuf, uint8_t tag, void *data, uint16_t len)
-{
-	evbuffer_add(evbuf, &tag, sizeof(tag));
-	encode_int(evbuf, len);
-	evbuffer_add(evbuf, data, len);
-}
-
-/* Marshaling for integers */
-void
-tag_marshal_int(struct evbuffer *evbuf, uint8_t tag, uint32_t integer)
-{
-	evbuffer_drain(_buf, EVBUFFER_LENGTH(_buf));
-	encode_int(_buf, integer);
-
-	evbuffer_add(evbuf, &tag, sizeof(tag));
-	encode_int(evbuf, EVBUFFER_LENGTH(_buf));
-	evbuffer_add_buffer(evbuf, _buf);
-}
-
-void
-tag_marshal_string(struct evbuffer *buf, uint8_t tag, char *string)
-{
-	tag_marshal(buf, tag, string, strlen(string));
-}
-
-void
-tag_marshal_timeval(struct evbuffer *evbuf, uint8_t tag, struct timeval *tv)
-{
-	evbuffer_drain(_buf, EVBUFFER_LENGTH(_buf));
-
-	encode_int(_buf, tv->tv_sec);
-	encode_int(_buf, tv->tv_usec);
-
-	tag_marshal(evbuf, tag, EVBUFFER_DATA(_buf),
-	    EVBUFFER_LENGTH(_buf));
-}
 
 void
 tag_marshal_record(struct evbuffer *evbuf, uint8_t tag, struct record *record)

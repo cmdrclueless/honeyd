@@ -56,7 +56,7 @@
 #include <syslog.h>
 #include <unistd.h>
 
-#include <event.h>
+#include <event2/event.h>
 #include <pcap.h>
 #include <dnet.h>
 

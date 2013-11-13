@@ -83,7 +83,7 @@
 #undef timeout_initialized
 
 #include <math.h>
-#include <event.h>
+#include <event2/event.h>
 
 #include "honeyd.h"
 #include "personality.h"

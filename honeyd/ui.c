@@ -54,7 +54,7 @@
 
 #include "config.h"
 
-#include <event.h>
+#include <event2/event.h>
 #include <dnet.h>
 
 #include "ui.h"

@@ -51,8 +51,8 @@
 #include <string.h>
 
 #include <dnet.h>
-#include <event.h>
-#include <evdns.h>
+#include <event2/event.h>
+#include <event2/dns.h>
 
 #include "tagging.h"
 #include "histogram.h"

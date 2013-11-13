@@ -67,7 +67,8 @@
 #undef timeout_pending
 #undef timeout_initialized
 
-#include <event.h>
+#include <event2/event.h>
+#include <event2/tag.h>
 
 #include "honeyd.h"
 #include "tagging.h"
@@ -203,12 +204,12 @@ measurement_process(struct user *user, struct evbuffer *evbuf)
 	time_t tstart;
 	uint8_t tag;
 
-	if (tag_unmarshal_int(evbuf, M_COUNTER, &counter) == -1)
+	if (evtag_unmarshal_int(evbuf, M_COUNTER, &counter) == -1)
 		return (-1);
-	if (tag_unmarshal_timeval(evbuf, M_TV_START, &tv_start) == -1)
+	if (evtag_unmarshal_timeval(evbuf, M_TV_START, &tv_start) == -1)
 		return (-1);
 
-	if (tag_unmarshal_timeval(evbuf, M_TV_END, &tv_end) == -1)
+	if (evtag_unmarshal_timeval(evbuf, M_TV_END, &tv_end) == -1)
 		return (-1);
 
 	timersub(&tv_end, &tv_start, &tv_diff);
@@ -244,9 +245,9 @@ measurement_process(struct user *user, struct evbuffer *evbuf)
 	user->nreports++;
 	user->seqnr = counter;
 
-	while (tag_peek(evbuf, &tag) != -1) {
+	while (evtag_peek(evbuf, &tag) != -1) {
 		if (tag != M_RECORD) {
-			tag_consume(evbuf);
+			evtag_consume(evbuf);
 			continue;
 		}
 
@@ -273,9 +274,9 @@ signature_process(struct evbuffer *evbuf)
 		    EVBUFFER_DATA(evbuf), EVBUFFER_LENGTH(evbuf));
 	}
 
-	if (tag_unmarshal_string(evbuf, SIG_NAME, &username) == -1)
+	if (evtag_unmarshal_string(evbuf, SIG_NAME, &username) == -1)
 		goto out;
-	if (tag_unmarshal_fixed(evbuf, SIG_DIGEST, digest,
+	if (evtag_unmarshal_fixed(evbuf, SIG_DIGEST, digest,
 		sizeof(digest)) == -1)
 		goto out;
 
@@ -287,7 +288,7 @@ signature_process(struct evbuffer *evbuf)
 
 	if ((tmp = evbuffer_new()) == NULL)
 		err(1, "%s: evbuffer_new");
-	if (tag_unmarshal(evbuf, &tag, tmp) == -1)
+	if (evtag_unmarshal(evbuf, &tag, tmp) == -1)
 		goto out;
 
 	/* Validate signature */
@@ -336,7 +337,7 @@ signature_length(struct evbuffer *evbuf)
 	tmp = *evbuf;
 
 	/* name */
-	if (tag_peek_length(&tmp, &tlen) == -1 || EVBUFFER_LENGTH(&tmp) < tlen)
+	if (evtag_peek_length(&tmp, &tlen) == -1 || EVBUFFER_LENGTH(&tmp) < tlen)
 		return (-1);
 		
 	length = tlen;
@@ -344,7 +345,7 @@ signature_length(struct evbuffer *evbuf)
 	tmp.off -= tlen;
 
 	/* signature */
-	if (tag_peek_length(&tmp, &tlen) == -1 || EVBUFFER_LENGTH(&tmp) < tlen)
+	if (evtag_peek_length(&tmp, &tlen) == -1 || EVBUFFER_LENGTH(&tmp) < tlen)
 		return (-1);
 		
 	length += tlen;
@@ -352,7 +353,7 @@ signature_length(struct evbuffer *evbuf)
 	tmp.off -= tlen;
 
 	/* data */
-	if (tag_peek_length(&tmp, &tlen) == -1 || EVBUFFER_LENGTH(&tmp) < tlen)
+	if (evtag_peek_length(&tmp, &tlen) == -1 || EVBUFFER_LENGTH(&tmp) < tlen)
 		return (-1);
 		
 	length += tlen;

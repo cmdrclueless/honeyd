@@ -55,7 +55,7 @@
 #include <assert.h>
 #include <syslog.h>
 
-#include <event.h>
+#include <event2/event.h>
 #include <dnet.h>
 
 #include "rrdtool.h"

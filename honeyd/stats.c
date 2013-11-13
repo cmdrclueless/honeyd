@@ -58,7 +58,8 @@
 #define assert(x)
 #endif
 
-#include <event.h>
+#include <event2/event.h>
+#include <event2/tag.h>
 #include <pcap.h>
 #include <dnet.h>
 #include <zlib.h>
@@ -448,11 +449,9 @@ stats_package_measurement()
 	    EVBUFFER_LENGTH(sc.evbuf_measure));
 
 	/* Create the signed buffer */
-	tag_marshal_string(evbuf, SIG_NAME, sc.user_name);
-	tag_marshal(evbuf, SIG_DIGEST, digest, sizeof(digest));
-	tag_marshal(evbuf, SIG_COMPRESSED_DATA,
-	    EVBUFFER_DATA(sc.evbuf_measure),
-	    EVBUFFER_LENGTH(sc.evbuf_measure));
+	evtag_marshal_string(evbuf, SIG_NAME, sc.user_name);
+	evtag_marshal(evbuf, SIG_DIGEST, digest, sizeof(digest));
+	evtag_marshal(evbuf, SIG_COMPRESSED_DATA, EVBUFFER_DATA(sc.evbuf_measure), EVBUFFER_LENGTH(sc.evbuf_measure));
 
 	stats_prepare_send(evbuf);
 }
@@ -460,9 +459,9 @@ stats_package_measurement()
 void
 measurement_marshal(struct evbuffer *evbuf, struct measurement *m)
 {
-	tag_marshal_int(sc.evbuf_measure, M_COUNTER, m->counter);
-	tag_marshal_timeval(sc.evbuf_measure, M_TV_START, &m->tv_start);
-	tag_marshal_timeval(sc.evbuf_measure, M_TV_END, &m->tv_end);
+	evtag_marshal_int(sc.evbuf_measure, M_COUNTER, m->counter);
+	evtag_marshal_timeval(sc.evbuf_measure, M_TV_START, &m->tv_start);
+	evtag_marshal_timeval(sc.evbuf_measure, M_TV_END, &m->tv_end);
 }
 
 /*

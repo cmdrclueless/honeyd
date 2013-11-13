@@ -51,7 +51,7 @@
 #include <assert.h>
 
 #include <dnet.h>
-#include <event.h>
+#include <event2/event.h>
 
 #include "histogram.h"
 
