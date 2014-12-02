@@ -1,0 +1,20 @@
+Source: honeyd
+Section: unknown
+Priority: extra
+Maintainer: Brian Weaver <cmdrclueless@gmail.com>
+Build-Depends: debhelper (>= 8.0.0)
+Standards-Version: 3.9.3
+Homepage: https://github.com/cmdrclueless/honeyd
+#Vcs-Git: git://git.debian.org/collab-maint/honeyd.git
+#Vcs-Browser: http://git.debian.org/?p=collab-maint/honeyd.git;a=summary
+
+Package: honeyd
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}
+Description: <insert up to 60 chars description>
+ <insert long description, indented with spaces>
+
+Package: honeyd-doc
+Architecture: all
+Description: documentation for honeyd
+ <insert long description, indented with spaces>
