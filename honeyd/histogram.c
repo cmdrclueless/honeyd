@@ -70,7 +70,7 @@ static struct timeval tv_periodic;
 static void
 count_time_evcb(int fd, short what, void *arg)
 {
-	struct event *ev = arg;
+	struct event *ev = *((struct event **)arg);
 	struct timeval tv;
 
 	gettimeofday(&tv_periodic, NULL);

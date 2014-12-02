@@ -44,6 +44,7 @@ struct interface {
 
 	char if_filter[1024];
 	struct intf_entry if_ent;
+	char if_ent_extra[128];
 };
 
 /* disables event methods that do not work with bpf */

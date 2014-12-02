@@ -123,7 +123,7 @@ interface_new(char *dev)
 
 	TAILQ_INSERT_TAIL(&interfaces, inter, next);
 
-	inter->if_ent.intf_len = sizeof(struct intf_entry);
+	inter->if_ent.intf_len = sizeof(inter->if_ent) + sizeof(inter->if_ent_extra);
 	strlcpy(inter->if_ent.intf_name, dev, sizeof(inter->if_ent.intf_name));
 	
 	if (intf_get(intf, &inter->if_ent) < 0)
