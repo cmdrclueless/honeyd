@@ -33,11 +33,6 @@
 #ifndef _UNTAGGING_
 #define _UNTAGGING_
 
-int record_unmarshal(struct record *, struct evbuffer *);
-
-int addr_unmarshal(struct addr *, struct evbuffer *);
-
-int tag_unmarshal_record(struct evbuffer *evbuf, uint8_t need_tag,
-    struct record *record);
+int tag_unmarshal_record(struct evbuffer *evbuf, uint32_t need_tag, struct record *record);
 
 #endif /* _UNTAGGING_ */

@@ -10,7 +10,7 @@ if COND_REGRESS
 endif
 SUBDIRS = . $(MAYBE_PYPCAP) $(MAYBE_PYDPKT) $(MAYBE_REGRESS)
 
-AUTOMAKE_OPTIONS = foreign no-dependencies
+AUTOMAKE_OPTIONS = foreign no-dependencies subdir-objects
 ACLOCAL_AMFLAGS  = -I m4
 
 ########################################################################
@@ -140,7 +140,7 @@ CFLAGS	= -O2 -Wall -g \
 	-DHONEYD_PLUGINS="$(honeydplugins)" \
 	-DPATH_RRDTOOL="\"$(PATH_RRDTOOL)\""
 
-INCLUDES = -I$(top_srcdir)/@DNETCOMPAT@ -I$(top_srcdir)/compat \
+AM_CPPFLAGS = -I$(top_srcdir)/@DNETCOMPAT@ -I$(top_srcdir)/compat \
 	@PYTHONINC@ @EVENTINC@ @PCAPINC@ @DNETINC@ @ZINC@
 
 ########################################################################

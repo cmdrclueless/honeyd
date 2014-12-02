@@ -408,7 +408,7 @@ port_encapsulation_free(struct port_encapsulate *tmp)
 	struct port *port = tmp->port;
 
 	TAILQ_REMOVE(&port->pending, tmp, next);
-	event_del(&tmp->ev);
+	event_del(tmp->ev);
 	
 	/* Remove the reference to the pending connection */
 	if (tmp->hdr != NULL)
@@ -960,7 +960,6 @@ template_print(struct evbuffer *buffer, struct template *tmpl)
 /***************************************************************************
  * Everything is unittest related below this
  ***************************************************************************/
-
 void
 template_delay_cb(int fd, short which, void *arg)
 {
@@ -1000,10 +999,12 @@ template_delay_cb(int fd, short which, void *arg)
 void
 template_test_parse_error(char *line, struct evbuffer *evbuf)
 {
-	char *p = EVBUFFER_DATA(evbuf);
-	size_t off = EVBUFFER_LENGTH(evbuf);
-	p[off - 1] = '\0';
-	errx(1, "parse_line \"%s\" failed: %s", line, p);
+	size_t off;
+	char data[128];
+
+	evbuffer_copyout(evbuf, data, off = evbuffer_get_length(evbuf));
+	data[off - 1] = '\0';
+	errx(1, "parse_line \"%s\" failed: %s", line, data);
 }
 
 #define MAKE_CONFIG(x)	do { \
@@ -1022,8 +1023,7 @@ template_test_add(struct evbuffer *evbuf, struct addr *addr, int count)
 		evbuffer_drain(evbuf, -1);
 		
 		addr->addr_ip = htonl(ntohl(addr->addr_ip) + 1);
-		snprintf(line, sizeof(line), "bind %s template",
-		    addr_ntoa(addr));
+		snprintf(line, sizeof(line), "bind %s template", addr_ntoa(addr));
 		MAKE_CONFIG(line);
 	}
 
@@ -1034,8 +1034,6 @@ void
 template_test_measure(int count)
 {
 	extern rand_t *honeyd_rand;
-	extern void
-	  honeyd_recv_cb(u_char *, const struct pcap_pkthdr *, const u_char *);
 	u_char pkt[1500];
 	struct interface inter;
 	struct pcap_pkthdr pkthdr;

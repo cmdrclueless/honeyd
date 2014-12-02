@@ -55,6 +55,7 @@
 #include "config.h"
 
 #include <event2/event.h>
+#include <event2/buffer.h>
 #include <dnet.h>
 
 #include "ui.h"
@@ -63,15 +64,17 @@
 #include "pyextend.h"
 #endif
 
-char *ui_file = UI_FIFO;
+extern struct event_base *honeyd_base_ev; /* allocated in honeyd.c */
+
+static char *ui_file = UI_FIFO;
 
 #define PROMPT		"honeydctl> "
 #define WHITESPACE	" \t"
 
 char *strnsep(char **, char *);
 
-int ui_command_help(struct evbuffer *, char *);
-int ui_command_python(struct evbuffer *, char *);
+static int ui_command_help(struct evbuffer *, char *);
+static int ui_command_python(struct evbuffer *, char *);
 
 struct command {
 	char *cmd;
@@ -108,11 +111,9 @@ struct command commands[] = {
 	}
 };
 
-struct event ev_accept;
+static struct event *ev_accept;
 
-char tmpbuf[1024];
-
-char *
+static char *
 make_prompt(void)
 {
 	static char tmp[128];
@@ -126,33 +127,24 @@ make_prompt(void)
 	return (tmp);
 }
 
-int
+static int
 ui_write_prompt(struct uiclient *client)
 {
-	u_char *tmp = make_prompt();
+	char *tmp = make_prompt();
 
-	evbuffer_add(client->outbuf, tmp, strlen(tmp));
-	event_add(&client->ev_write, NULL);
+	evbuffer_add(client->outbuf, (void *)tmp, strlen(tmp));
+	event_add(client->ev_write, NULL);
 
 	return (0);
 }
 
-int
-ui_buffer_prompt(struct uiclient *client)
-{
-	u_char *tmp = make_prompt();
-
-	evbuffer_add(client->outbuf, tmp, strlen(tmp));
-	return (0);
-}
-
-void
+static void
 ui_dead(struct uiclient *client)
 {
 	syslog(LOG_NOTICE, "%s: ui on fd %d is gone", __func__, client->fd);
 
-	event_del(&client->ev_read);
-	event_del(&client->ev_write);
+	event_del(client->ev_read);
+	event_del(client->ev_write);
 
 	close(client->fd);
 	evbuffer_free(client->inbuf);
@@ -160,7 +152,7 @@ ui_dead(struct uiclient *client)
 	free(client);
 }
 
-int
+static int
 ui_command_python(struct evbuffer *buf, char *line)
 {
 #ifndef HAVE_PYTHON
@@ -173,7 +165,7 @@ ui_command_python(struct evbuffer *buf, char *line)
 	return (0);
 }
 
-int
+static int
 ui_command_help(struct evbuffer *buf, char *line)
 {
 	char output[1024];
@@ -204,7 +196,7 @@ ui_command_help(struct evbuffer *buf, char *line)
 	return (0);
 }
 
-void
+static void
 ui_handle_command(struct evbuffer *buf, char *original)
 {
 	char output[1024];
@@ -239,14 +231,12 @@ ui_handle_command(struct evbuffer *buf, char *original)
 	return;
 }
 
-void
-ui_writer(int fd, short what, void *arg)
+static void
+ui_writer(evutil_socket_t fd, short what, void *arg)
 {
 	struct uiclient *client = arg;
-	struct evbuffer *buffer = client->outbuf;
-	int n;
 
-	n = write(fd, buffer->buffer, buffer->off);
+	int n = evbuffer_write_atmost(client->outbuf, fd, -1);
 	if (n == -1) {
 		if (errno == EINTR || errno == EAGAIN)
 			goto schedule;
@@ -257,55 +247,45 @@ ui_writer(int fd, short what, void *arg)
 		return;
 	}
 
-	evbuffer_drain(buffer, n);
-
  schedule:
-	if (buffer->off)
-		event_add(&client->ev_write, NULL);
+ 	if (evbuffer_get_length(client->outbuf))
+		event_add(client->ev_write, NULL);
 }
 
-void
-ui_handler(int fd, short what, void *arg)
+static void
+ui_handler(evutil_socket_t fd, short what, void *arg)
 {
 	struct uiclient *client = arg;
-	struct evbuffer *mybuf = client->inbuf;
-	char *p;
-	int n, consumed;
 
-	if (evbuffer_read(mybuf, fd, -1) <= 0) {
+	if (evbuffer_read(client->inbuf, fd, -1) <= 0) {
 		ui_dead(client);
 		return;
 	}
 
-	n = mybuf->off;
-	p = mybuf->buffer;
-	consumed = 0;
-	while (n--) {
-		consumed++;
+	for (;;) {
+		size_t eol_len;
+		struct evbuffer_ptr line = evbuffer_search_eol(client->inbuf, NULL, &eol_len, EVBUFFER_EOL_LF);
+		if (line.pos == -1)
+			break;
 
-		/*
-		 * When we find a newline, cut off the line and feed it to the
-		 * command processor.  Then move the rest up-front.
-		 */
-		if (*p == '\n') {
-			*p = '\0';
-			ui_handle_command(client->outbuf, mybuf->buffer);
+		char *p = (char *)malloc(line.pos + 1);
+		if (p != NULL) {
+			evbuffer_remove(client->inbuf, (void *)p, line.pos);
+			p[line.pos] = '\0'; /* ensure termination */
 
-			evbuffer_drain(mybuf, consumed);
-			n = mybuf->off;
-			p = mybuf->buffer;
-			consumed = 0;
-			continue;
+			evbuffer_drain(client->inbuf, eol_len);
+
+			ui_handle_command(client->outbuf, p);
+			free(p);
 		}
-		p++;
 	}
 
 	ui_write_prompt(client);
 
-	event_add(&client->ev_read, NULL);
+	event_add(client->ev_read, NULL);
 }
 
-void
+static void
 ui_greeting(struct uiclient *client)
 {
 	struct timeval tv;
@@ -321,8 +301,8 @@ ui_greeting(struct uiclient *client)
 	    VERSION, tv.tv_sec);
 }
 
-void
-ui_new(int fd, short what, void *arg)
+static void
+ui_new(evutil_socket_t fd, short what, void *arg)
 {
 	int newfd;
 	struct uiclient *client;
@@ -347,12 +327,13 @@ ui_new(int fd, short what, void *arg)
 
 	syslog(LOG_NOTICE, "%s: New ui connection on fd %d", __func__, newfd);
 
-	event_set(&client->ev_read, newfd, EV_READ, ui_handler, client);
-	event_priority_set(&client->ev_read, 0);
-	event_add(&client->ev_read, NULL);
+	client->ev_read = event_new(honeyd_base_ev, newfd, EV_READ, ui_handler, client);
+	event_priority_set(client->ev_read, 0);
+	event_add(client->ev_read, NULL);
 
-	event_set(&client->ev_write, newfd, EV_WRITE, ui_writer, client);
-	event_priority_set(&client->ev_write, 0);
+	client->ev_write = event_new(honeyd_base_ev, newfd, EV_WRITE, ui_writer, client);
+	event_priority_set(client->ev_write, 0);
+	/* event_add(client->ev_write, NULL); -- is this missing? */
 
 	ui_greeting(client);
 	ui_write_prompt(client);
@@ -396,7 +377,7 @@ ui_init(void)
         if (listen(ui_socket, 5) == -1)
                 err(1, "%s: listen, __func__");
 
-	event_set(&ev_accept, ui_socket, EV_READ | EV_PERSIST, ui_new, NULL);
-	event_priority_set(&ev_accept, 0);
-	event_add(&ev_accept, NULL);
+	ev_accept = event_new(honeyd_base_ev, ui_socket, EV_READ|EV_PERSIST, ui_new, NULL);
+	event_priority_set(ev_accept, 0);
+	event_add(ev_accept, NULL);
 }

@@ -60,14 +60,17 @@
 #include <getopt.h>
 #include <err.h>
 
-#include <event.h>
-#include <evdns.h>
+#include <event2/event.h>
+#include <event2/dns.h>
 
 #include "util.h"
 #include "proxy.h"
 #include "smtp.h"
 
 /* globals */
+
+struct event_base *honeyd_base_ev;
+struct evdns_base *honeyd_base_evdns;
 
 extern FILE *flog_proxy;	/* log the proxy transactions somewhere */
 extern FILE *flog_email;	/* log SMTP transactions somewhere */
@@ -89,7 +92,7 @@ usage(char *progname)
 int
 main(int argc, char **argv)
 {
-	struct event bind_ev;
+	struct event *bind_ev;
 	char *progname = argv[0];
 	char *logfile = NULL;
 	char *mail_logfile = NULL;
@@ -145,9 +148,8 @@ main(int argc, char **argv)
 
 	proxy_init();
 
-	event_init();
-
-	evdns_init();
+	honeyd_base_ev = event_base_new();
+	honeyd_base_evdns = evdns_base_new(honeyd_base_ev, 1);
 
 	if (ports == NULL) {
 		/* Just a single port to connect to */
@@ -161,14 +163,11 @@ main(int argc, char **argv)
 			port = atoi(p);
 			if (port == 0)
 				errx(1, "Bad port number: %s", p);
-			event = malloc(sizeof(struct event));
-			if (event == NULL)
-				err(1, "%s: malloc", __func__);
-			proxy_bind_socket(event, port);
+			proxy_bind_socket(&event, port);
 		}
 	}
 	
-	event_dispatch();
+	event_base_dispatch(honeyd_base_ev);
 
 	exit(0);
 }

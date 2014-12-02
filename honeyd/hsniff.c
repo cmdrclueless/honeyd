@@ -79,6 +79,7 @@
 #include "stats.h"
 #include "debug.h"
 
+struct event_base * honeyd_base_ev;
 int			honeyd_debug;
 
 static int		hsniff_show_version;
@@ -215,7 +216,7 @@ tcp_track_new(struct ip_hdr *ip, struct tcp_hdr *tcp, int local)
 	}
 
 	hsniff_settcp(con, ip, tcp, local);
-	evtimer_set(&con->timeout, hsniff_tcp_timeout, con);
+	con->timeout = evtimer_new(honeyd_base_ev, hsniff_tcp_timeout, con);
 
 	SPLAY_INSERT(tree, &tcpcons, &con->conhdr);
 
@@ -237,7 +238,7 @@ tcp_track_free(struct tcp_track *con)
 	hooks_dispatch(IP_PROTO_TCP, HD_INCOMING_STREAM, &con->conhdr,
 	    NULL, 0);
 
-	evtimer_del(&con->timeout);
+	evtimer_del(con->timeout);
 
 	free(con);
 }
@@ -316,10 +317,8 @@ tcp_drop_subsumed(struct tcp_track *con)
 		 * so we can stream its content out.
 		 */
 
-		syslog(LOG_NOTICE, "Streaming: %s %u: %d",
-		    honeyd_contoa(&con->conhdr), con->snd_una, seg->len);
-		hooks_dispatch(IP_PROTO_TCP, HD_INCOMING_STREAM,
-		    &con->conhdr, seg->data, seg->len);
+		syslog(LOG_NOTICE, "Streaming: %s %u: %lu", honeyd_contoa(&con->conhdr), con->snd_una, seg->len);
+		hooks_dispatch(IP_PROTO_TCP, HD_INCOMING_STREAM, &con->conhdr, seg->data, seg->len);
 
 		con->snd_una += seg->len;
 		free(seg);
@@ -372,7 +371,7 @@ tcp_recv_cb(u_char *pkt, u_short pktlen)
 	 * We need to hear back from this connection every so often,
 	 * or we are going to time it out.
 	 */
-	generic_timeout(&con->timeout, HSNIFF_CON_EXPIRE);
+	generic_timeout(con->timeout, HSNIFF_CON_EXPIRE);
 
 	hooks_dispatch(ip->ip_p, HD_INCOMING, &tmp.conhdr, pkt, pktlen);
 	
@@ -397,8 +396,7 @@ tcp_recv_cb(u_char *pkt, u_short pktlen)
 
 	if (th_seq == con->snd_una) {
 		/* Inform our listener about the new data */
-		syslog(LOG_NOTICE, "Streaming: %s %u: %d",
-		    honeyd_contoa(&con->conhdr), con->snd_una, dlen);
+		syslog(LOG_NOTICE, "Streaming: %s %u: %lu", honeyd_contoa(&con->conhdr), con->snd_una, dlen);
 		hooks_dispatch(IP_PROTO_TCP, HD_INCOMING_STREAM, &con->conhdr,
 		    data, dlen);
 		con->snd_una = th_seq + dlen;
@@ -513,7 +511,7 @@ int
 main(int argc, char *argv[])
 {
 	extern int interface_dopoll;
-	struct event sigterm_ev, sigint_ev;
+	struct event *sigterm_ev, *sigint_ev;
 	char *dev[HSNIFF_MAX_INTERFACES];
 	char **orig_argv;
 	char *osfp = PATH_HONEYDDATA "/pf.os";
@@ -666,14 +664,14 @@ main(int argc, char *argv[])
 	/* disabled event methods that don't work with bpf */
 	interface_prevent_init();
 
-	event_init();
+	honeyd_base_ev = event_base_new();
 
 	syslog_init(orig_argc, orig_argv);
 
 	/* Initialize Honeyd's callback hooks */
 	hooks_init();
 
-	tagging_init();
+	evtag_init();
 	interface_initialize(hsniff_recv_cb);
 
 	if (stats_username == NULL)
@@ -719,16 +717,15 @@ main(int argc, char *argv[])
 	/* Drop privileges if we do not need them */
 	droppriv(hsniff_uid, hsniff_gid);
 
-	syslog(LOG_NOTICE,
-	    "Demoting process privileges to uid %u, gid %u",
-	    hsniff_uid, hsniff_gid);
+	syslog(LOG_NOTICE, "Demoting process privileges to uid %u, gid %u", hsniff_uid, hsniff_gid);
 
-	signal_set(&sigint_ev, SIGINT, hsniff_signal, NULL);
-	signal_add(&sigint_ev, NULL);
-	signal_set(&sigterm_ev, SIGTERM, hsniff_signal, NULL);
-	signal_add(&sigterm_ev, NULL);
+	sigint_ev = evsignal_new(honeyd_base_ev, SIGINT, hsniff_signal, NULL);
+	evsignal_add(sigint_ev, NULL);
 
-	event_dispatch();
+	sigterm_ev = evsignal_new(honeyd_base_ev, SIGTERM, hsniff_signal, NULL);
+	evsignal_add(sigterm_ev, NULL);
+
+	event_base_dispatch(honeyd_base_ev);
 
 	syslog(LOG_ERR, "Kqueue does not recognize bpf filedescriptor.");
 

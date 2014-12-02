@@ -69,8 +69,6 @@
 /* Prototypes */
 int pcap_dloff(pcap_t *);
 
-void honeyd_recv_cb(u_char *, const struct pcap_pkthdr *, const u_char *);
-
 static char *interface_expandips(int, char **, int);
 static void interface_recv(int, short, void *);
 static void interface_poll_recv(int, short, void *);
@@ -368,15 +366,14 @@ interface_init(char *dev, int naddresses, char **addresses)
 #endif
 
 	if (!interface_dopoll) {
-		event_set(&inter->if_recvev, pcap_fd,
-		    EV_READ, interface_recv, inter);
-		event_add(&inter->if_recvev, NULL);
+		inter->if_recvev = event_new(honeyd_base_ev, pcap_fd, EV_READ, interface_recv, inter);
+		event_add(inter->if_recvev, NULL);
 	} else {
 		struct timeval tv = HONEYD_POLL_INTERVAL;
 
 		syslog(LOG_INFO, "switching to polling mode");
-		evtimer_set(&inter->if_recvev, interface_poll_recv, inter);
-		evtimer_add(&inter->if_recvev, &tv);
+		inter->if_recvev = evtimer_new(honeyd_base_ev, interface_poll_recv, inter);
+		evtimer_add(inter->if_recvev, &tv);
 	}
 }
 
@@ -492,7 +489,7 @@ interface_recv(int fd, short type, void *arg)
 	struct interface *inter = arg;
 
 	if (!interface_dopoll)
-		event_add(&inter->if_recvev, NULL);
+		event_add(inter->if_recvev, NULL);
 
 	if (pcap_dispatch(inter->if_pcap, -1, if_recv_cb, (u_char *)inter) < 0)
 		syslog(LOG_ERR, "pcap_dispatch: %s",
@@ -505,7 +502,7 @@ interface_poll_recv(int fd, short type, void *arg)
 	struct interface *inter = arg;
 	struct timeval tv = HONEYD_POLL_INTERVAL;
 
-	evtimer_add(&inter->if_recvev, &tv);
+	evtimer_add(inter->if_recvev, &tv);
 
 	interface_recv(fd, type, arg);
 }

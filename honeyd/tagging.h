@@ -37,8 +37,6 @@
 #include <event2/tag.h>
 #endif
 
-void tagging_init(void);
-
 #define SHINGLE_MIN	32
 #define SHINGLE_MAX	1024
 #define SHINGLE_SIZE	8
@@ -77,22 +75,11 @@ enum {
 	ADDR_TYPE, ADDR_BITS, ADDR_ADDR, ADDR_MAX_TAGS
 } address_tags;
 
-#if 0
-void record_marshal(struct evbuffer *, struct record *);
-
-void addr_marshal(struct evbuffer *, struct addr *);
-
 /* 
  * Marshaling tagged data - We assume that all tags are inserted in their
  * numeric order - so that unknown tags will always be higher than the
  * known ones - and we can just ignore the end of an event buffer.
  */
-
-void tag_marshal(struct evbuffer *evbuf, uint8_t tag, void *data,
-    uint16_t len);
-
-void tag_marshal_record(struct evbuffer *evbuf, uint8_t tag,
-    struct record *record);
-#endif
+void tag_marshal_record(struct evbuffer *evbuf, uint8_t tag, struct record *record);
 
 #endif /* _TAGGING_ */

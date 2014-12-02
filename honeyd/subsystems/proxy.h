@@ -61,10 +61,9 @@ struct proxy_ta {
 	int dns_canceled;
 };
 
-struct proxy_ta *proxy_ta_new(int fd, struct sockaddr *sa, socklen_t salen,
-    struct sockaddr *lsa, socklen_t lsalen);
+struct proxy_ta *proxy_ta_new(int fd, struct sockaddr *sa, socklen_t salen, struct sockaddr *lsa, socklen_t lsalen);
 void proxy_ta_free(struct proxy_ta *ta);
-void proxy_bind_socket(struct event *ev, u_short port);
+void proxy_bind_socket(struct event **ev, u_short port);
 void proxy_init(void);
 char *proxy_pcre_group(char *line, int groupnr, int ovector[]);
 

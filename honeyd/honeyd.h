@@ -76,7 +76,7 @@ struct spoof {
 extern struct spoof no_spoof;
 
 struct delay {
-	struct event timeout;
+	struct event *timeout;
 
 	struct addr src;
 	struct addr dst;
@@ -159,7 +159,7 @@ struct tuple {
 	uint32_t received;
 	uint32_t sent;
 
-	struct event timeout;
+	struct event *timeout;
 
 	int local;	/* locally initiated */
 
@@ -175,9 +175,9 @@ struct command {
 	int pfd;
 	int perrfd;
 
-	struct event pread;
-	struct event pwrite;
-	struct event peread;
+	struct event *pread;
+	struct event *pwrite;
+	struct event *peread;
 
 	uint8_t fdconnected:1,
 	        fdwantclose:1,
@@ -203,7 +203,7 @@ struct port_encapsulate {
 	struct port *port;
 	void *con;
 
-	struct event ev;
+	struct event *ev;
 };
 
 /* State about TCP connections */
@@ -251,7 +251,7 @@ struct tcp_con {
 
 	u_short retrans_time;
 
-	struct event retrans_timeout;
+	struct event *retrans_timeout;
 
 	struct port *port;		/* used if bound to sub system */
 
@@ -326,6 +326,19 @@ struct icmp_msg_inforeply { /* Our definition */
 #define TCP_BYTESINFLIGHT(x)	(x)->poff
 #define TCP_MAX_INFLIGHT	4096
 
+/* other forward reference structures */
+struct addrinfo;
+struct pcap_pkthdr;
+
+/*
+ * External share data definitions
+ */
+extern struct event_base *honeyd_base_ev; /* the event base from libevent2 for event dispatching */
+
+/*
+ * Extern function prototypes
+ */
+
 /* Iterate over all active connections */
 int tuple_iterate(struct conlru *, int (*f)(struct tuple *, void *), void *);
 struct tuple *tuple_find(struct tree *, struct tuple *);
@@ -335,6 +348,8 @@ void honeyd_dispatch(struct template *, struct ip_hdr *, u_short);
 char *honeyd_contoa(const struct tuple *);
 
 void honeyd_input(const struct interface *, struct ip_hdr *, u_short);
+void honeyd_recv_cb(u_char *ag, const struct pcap_pkthdr *pkthdr, const u_char *pkt);
+struct action *honeyd_protocol(struct template *, int);
 
 /* Command prototypes for services */
 void cmd_droppriv(uid_t, gid_t);
@@ -343,27 +358,21 @@ void cmd_ready_fd(struct command *, struct callback *, void *);
 void cmd_trigger_read(struct command *, int);
 void cmd_trigger_write(struct command *, int);
 void cmd_free(struct command *);
-int cmd_fork(struct tuple *, struct command *, struct template *,
-    char *, char **, void *);
-int cmd_python(struct tuple *, struct command *, void *);
-int cmd_subsystem(struct template *, struct subsystem *, char *, char **);
+int  cmd_fork(struct tuple *, struct command *, struct template *, char *, char **, void *);
+int  cmd_python(struct tuple *, struct command *, void *);
+int  cmd_subsystem(struct template *, struct subsystem *, char *, char **);
 
-struct addrinfo;
 struct addrinfo *cmd_proxy_getinfo(char *, int, short);
-int cmd_proxy_connect(struct tuple *, struct command *, struct addrinfo *,
-    void *);
+int cmd_proxy_connect(struct tuple *, struct command *, struct addrinfo *, void *);
 
-int cmd_subsystem_schedule_connect(struct tuple *hdr, struct command *cmd,
-    struct port *, void *arg);
-int cmd_subsystem_connect(struct tuple *hdr, struct command *cmd,
-    struct port *, void *arg);
-int cmd_subsystem_localconnect(struct tuple *hdr, struct command *cmd,
-    struct port *, void *arg);
+int cmd_subsystem_schedule_connect(struct tuple *hdr, struct command *cmd, struct port *, void *arg);
+int cmd_subsystem_connect(struct tuple *hdr, struct command *cmd, struct port *, void *arg);
+int cmd_subsystem_localconnect(struct tuple *hdr, struct command *cmd, struct port *, void *arg);
 
 /* Network connection elements */
 struct tcp_con *tcp_new(struct ip_hdr *, struct tcp_hdr *, int);
 struct udp_con *udp_new(struct ip_hdr *, struct udp_hdr *, int);
-int tcp_setupconnect(struct tcp_con *);
+int  tcp_setupconnect(struct tcp_con *);
 void tcp_connectfail(struct tcp_con *con);
 
 void generic_timeout(struct event *, int);
@@ -372,12 +381,12 @@ void generic_timeout(struct event *, int);
 int conhdr_compare(struct tuple *, struct tuple *);
 
 void tcp_free(struct tcp_con *);
-int tcp_send(struct tcp_con *, uint8_t, u_char *, u_int);
+int  tcp_send(struct tcp_con *, uint8_t, u_char *, u_int);
 void tcp_senddata(struct tcp_con *, uint8_t);
 void tcp_sendfin(struct tcp_con *);
 
 void udp_free(struct udp_con *);
-int udp_send(struct udp_con *con, u_char *payload, u_int len);
+int  udp_send(struct udp_con *con, u_char *payload, u_int len);
 
 void config_init(void);
 void config_read(char *);
@@ -388,18 +397,12 @@ struct port *port_find(struct template *, int, int);
 void port_free(struct template *, struct port *);
 void port_encapsulation_free(struct port_encapsulate *);
 
-void icmp_echo_reply(struct template *, struct ip_hdr *, uint8_t,
-    uint8_t, uint16_t, uint8_t,	u_char *, u_int, struct spoof spoof);
-void change_quote_header(struct ip_hdr *, uint16_t, 
-    uint16_t, uint16_t, uint16_t, uint16_t);
-void icmp_unreachable_reply(struct ip_hdr *rip, uint8_t ttl, uint8_t tos,
-	uint16_t df, uint16_t riplen, struct spoof spoof);
-void icmp_mask_reply(struct template *, struct ip_hdr *, 
-	struct icmp_msg_idseq *, uint8_t, uint32_t, struct spoof spoof);
-void icmp_info_reply(struct template *, struct ip_hdr *, 
-		struct icmp_msg_idseq *, uint8_t, struct spoof spoof);
-void icmp_timestamp_reply(struct template *, struct ip_hdr *,
-    struct icmp_msg_timestamp *, uint8_t, struct spoof spoof);
+void change_quote_header(struct ip_hdr *, uint16_t, uint16_t, uint16_t, uint16_t, uint16_t);
+void icmp_echo_reply(struct template *, struct ip_hdr *, uint8_t, uint8_t, uint16_t, uint8_t,	u_char *, u_int, struct spoof spoof);
+void icmp_unreachable_reply(struct ip_hdr *rip, uint8_t ttl, uint8_t tos, uint16_t df, uint16_t riplen, struct spoof spoof);
+void icmp_mask_reply(struct template *, struct ip_hdr *, struct icmp_msg_idseq *, uint8_t, uint32_t, struct spoof spoof);
+void icmp_info_reply(struct template *, struct ip_hdr *, struct icmp_msg_idseq *, uint8_t, struct spoof spoof);
+void icmp_timestamp_reply(struct template *, struct ip_hdr *, struct icmp_msg_timestamp *, uint8_t, struct spoof spoof);
 
 void honeyd_use_uid(uid_t);
 void honeyd_use_gid(gid_t);

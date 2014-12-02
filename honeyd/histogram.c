@@ -55,9 +55,10 @@
 
 #include "histogram.h"
 
+extern struct event_base * honeyd_base_ev;
 static struct timeval *tv_now;	/* used for unittesting */
 
-static struct event count_time_ev;
+static struct event *count_time_ev;
 static struct timeval tv_periodic;
 
 /*
@@ -83,7 +84,7 @@ void
 count_init(void)
 {
 	/* Start a timer that keeps track of the current system time */
-	evtimer_set(&count_time_ev, count_time_evcb, &count_time_ev);
+	count_time_ev = evtimer_new(honeyd_base_ev, count_time_evcb, &count_time_ev);
 	count_time_evcb(-1, EV_TIMEOUT, &count_time_ev);
 }
 

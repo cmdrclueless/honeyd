@@ -8,7 +8,7 @@ AC_CONFIG_MACRO_DIR([m4])
 AC_CANONICAL_TARGET
 AC_CANONICAL_HOST
 
-AM_INIT_AUTOMAKE(honeyd, 1.5c)
+AM_INIT_AUTOMAKE
 dnl AM_CONFIG_HEADER(config.h:config.in)
 AM_CONFIG_HEADER(config.h)
 AM_MAINTAINER_MODE
@@ -113,6 +113,8 @@ AC_PROG_YACC
 AC_CHECK_LIB(dl, dlopen, [ LIBDL="-ldl"
                            LIBS="$LIBS -ldl" ],,)
 AC_SUBST(LIBDL)
+
+AC_INLINE
 
 # Checks for libraries.
 dnl Checks for libpcap

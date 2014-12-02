@@ -133,7 +133,7 @@ tcp_add_readbuf(struct tcp_con *con, u_char *dat, u_int datlen)
 }
 
 void
-cmd_tcp_eread(int fd, short which, void *arg)
+cmd_tcp_eread(evutil_socket_t fd, short which, void *arg)
 {
 	extern FILE *honeyd_servicefp;
 	struct tcp_con *con = arg;
@@ -162,11 +162,11 @@ cmd_tcp_eread(int fd, short which, void *arg)
 	
 	honeyd_log_service(honeyd_servicefp, IP_PROTO_TCP, &con->conhdr, line);
 
-	TRACE(cmd->peread.ev_fd, event_add(&cmd->peread, NULL));
+	TRACE(event_get_fd(cmd->peread), event_add(cmd->peread, NULL));
 }
 
 void
-cmd_tcp_read(int fd, short which, void *arg)
+cmd_tcp_read(evutil_socket_t fd, short which, void *arg)
 {
 	struct tcp_con *con = arg;
 	int len, space;
@@ -206,7 +206,7 @@ cmd_tcp_read(int fd, short which, void *arg)
 }
 
 void
-cmd_tcp_write(int fd, short which, void *arg)
+cmd_tcp_write(evutil_socket_t fd, short which, void *arg)
 {
 	struct tcp_con *con = arg;
 	int len;
@@ -235,7 +235,7 @@ cmd_tcp_write(int fd, short which, void *arg)
 }
 
 void
-cmd_tcp_connect_cb(int fd, short which, void *arg)
+cmd_tcp_connect_cb(evutil_socket_t fd, short which, void *arg)
 {
 	struct tcp_con *con = arg;
         int error = 0;

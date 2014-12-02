@@ -53,21 +53,24 @@
 #include <unistd.h>
 
 #include <event2/event.h>
+#include <event2/buffer.h>
 #include <pcap.h>
 #include <dnet.h>
 
 #include "tagging.h"
 #include "untagging.h"
 
+static int record_unmarshal(struct record *, struct evbuffer *);
+static int addr_unmarshal(struct addr *, struct evbuffer *);
+
 int
-tag_unmarshal_record(struct evbuffer *evbuf, uint8_t need_tag,
-    struct record *record)
+tag_unmarshal_record(struct evbuffer *evbuf, uint32_t need_tag, struct record *record)
 {
-	uint8_t tag;
+	uint32_t tag;
 
 	struct evbuffer *tmp = evbuffer_new();
 
-	if (tag_unmarshal(evbuf, &tag, tmp) == -1 || tag != need_tag)
+	if (evtag_unmarshal(evbuf, &tag, tmp) == -1 || tag != need_tag)
 		goto error;
 
 	if (record_unmarshal(record, tmp) == -1)
@@ -90,33 +93,30 @@ tag_unmarshal_record(struct evbuffer *evbuf, uint8_t need_tag,
 #define UNMARSHAL(tag, what) \
 	tag_unmarshal_fixed(evbuf, tag, &(what), sizeof(what))
 
-int
+static int
 addr_unmarshal(struct addr* addr, struct evbuffer *evbuf)
 {
 	uint32_t tmp_int;
 
 	memset(addr, 0, sizeof(struct addr));
 
-	if (tag_unmarshal_int(evbuf, ADDR_TYPE,	&tmp_int) == -1)
+	if (evtag_unmarshal_int(evbuf, ADDR_TYPE, &tmp_int) == -1)
 		return (-1);
 	addr->addr_type = tmp_int;
 
-	if (tag_unmarshal_int(evbuf, ADDR_BITS, &tmp_int) == -1)
+	if (evtag_unmarshal_int(evbuf, ADDR_BITS, &tmp_int) == -1)
 		return (-1);
 	addr->addr_bits = tmp_int;
 
 	switch (addr->addr_type) {
 	case ADDR_TYPE_ETH:
-		tag_unmarshal_fixed(evbuf, ADDR_ADDR,
-		    &addr->addr_eth, sizeof(addr->addr_eth));
+		evtag_unmarshal_fixed(evbuf, ADDR_ADDR, &addr->addr_eth, sizeof(addr->addr_eth));
 		break;
 	case ADDR_TYPE_IP:
-		tag_unmarshal_fixed(evbuf, ADDR_ADDR,
-		    &addr->addr_ip, sizeof(addr->addr_ip));
+		evtag_unmarshal_fixed(evbuf, ADDR_ADDR, &addr->addr_ip, sizeof(addr->addr_ip));
 		break;
 	case ADDR_TYPE_IP6:
-		tag_unmarshal_fixed(evbuf, ADDR_ADDR,
-		    &addr->addr_ip6, sizeof(addr->addr_ip6));
+		evtag_unmarshal_fixed(evbuf, ADDR_ADDR, &addr->addr_ip6, sizeof(addr->addr_ip6));
 		break;
 	default:
 		return (-1);
@@ -128,87 +128,82 @@ addr_unmarshal(struct addr* addr, struct evbuffer *evbuf)
 /* 
  * Functions to un/marshal records.
  */
-
-int
+static int
 record_unmarshal(struct record *record, struct evbuffer *evbuf)
 {
 	struct evbuffer *tmp = evbuffer_new();
 	uint32_t integer;
-	uint8_t tag;
+	uint32_t tag;
 
 	memset(record, 0, sizeof(struct record));
 	TAILQ_INIT(&record->hashes);
 
 	/* The timevals are optional, so we need to check their presence */
-	if (tag_peek(evbuf, &tag) != -1 && tag == REC_TV_START) {
-		if (tag_unmarshal_timeval(evbuf, REC_TV_START,
-			&record->tv_start) == -1)
+	if (evtag_peek(evbuf, &tag) != -1 && tag == REC_TV_START) {
+		if (evtag_unmarshal_timeval(evbuf, REC_TV_START, &record->tv_start) == -1)
 			goto error;
 	}
-	if (tag_peek(evbuf, &tag) != -1 && tag == REC_TV_END) {
-		if (tag_unmarshal_timeval(evbuf, REC_TV_END,
-			&record->tv_end) == -1)
+	if (evtag_peek(evbuf, &tag) != -1 && tag == REC_TV_END) {
+		if (evtag_unmarshal_timeval(evbuf, REC_TV_END, &record->tv_end) == -1)
 			goto error;
 	}
 
-	evbuffer_drain(tmp, EVBUFFER_LENGTH(tmp));
-	if (tag_unmarshal(evbuf, &tag, tmp) == -1 || tag != REC_SRC)
+	evbuffer_drain(tmp, evbuffer_get_length(tmp));
+	if (evtag_unmarshal(evbuf, &tag, tmp) == -1 || tag != REC_SRC)
 		goto error;
 	if (addr_unmarshal(&record->src, tmp) == -1)
 		goto error;
 
-	evbuffer_drain(tmp, EVBUFFER_LENGTH(tmp));
-	if (tag_unmarshal(evbuf, &tag, tmp) == -1 || tag != REC_DST)
+	evbuffer_drain(tmp, evbuffer_get_length(tmp));
+	if (evtag_unmarshal(evbuf, &tag, tmp) == -1 || tag != REC_DST)
 		goto error;
 	if (addr_unmarshal(&record->dst, tmp) == -1)
 		goto error;
 
-	if (tag_unmarshal_int(evbuf, REC_SRC_PORT, &integer) == -1)
+	if (evtag_unmarshal_int(evbuf, REC_SRC_PORT, &integer) == -1)
 		goto error;
 	record->src_port = integer;
-	if (tag_unmarshal_int(evbuf, REC_DST_PORT, &integer) == -1)
+	if (evtag_unmarshal_int(evbuf, REC_DST_PORT, &integer) == -1)
 		goto error;
 	record->dst_port = integer;
-	if (tag_unmarshal_int(evbuf, REC_PROTO, &integer) == -1)
+	if (evtag_unmarshal_int(evbuf, REC_PROTO, &integer) == -1)
 		goto error;
 	record->proto = integer;
-	if (tag_unmarshal_int(evbuf, REC_STATE, &integer) == -1)
+	if (evtag_unmarshal_int(evbuf, REC_STATE, &integer) == -1)
 		goto error;
 	record->state = integer;
 
-	while (tag_peek(evbuf, &tag) != -1) {
+	while (evtag_peek(evbuf, &tag) != -1) {
 		switch(tag) {
 		case REC_OS_FP:
-			if (tag_unmarshal_string(evbuf, tag,
-				&record->os_fp) == -1)
+			if (evtag_unmarshal_string(evbuf, tag, &record->os_fp) == -1)
 				goto error;
 			break;
 
-		case REC_HASH: {
-			struct hash *tmp;
+		case REC_HASH:
+			{
+				struct hash *tmp;
 
-			if ((tmp = calloc(1, sizeof(struct hash))) == NULL)
-				err(1, "%s: calloc", __func__);
-			if (tag_unmarshal_fixed(evbuf, REC_HASH, tmp->digest,
-				sizeof(tmp->digest)) == -1) {
-				free(tmp);
-				goto error;
+				if ((tmp = calloc(1, sizeof(struct hash))) == NULL)
+					err(1, "%s: calloc", __func__);
+				if (evtag_unmarshal_fixed(evbuf, REC_HASH, tmp->digest, sizeof(tmp->digest)) == -1) {
+					free(tmp);
+					goto error;
+				}
+				TAILQ_INSERT_TAIL(&record->hashes, tmp, next);
 			}
-			TAILQ_INSERT_TAIL(&record->hashes, tmp, next);
-		}
 			break;
 		case REC_BYTES:
-			if (tag_unmarshal_int(evbuf, tag,&record->bytes) == -1)
+			if (evtag_unmarshal_int(evbuf, tag,&record->bytes) == -1)
 				goto error;
 			break;
 		case REC_FLAGS:
-			if (tag_unmarshal_int(evbuf, tag,&record->flags) == -1)
+			if (evtag_unmarshal_int(evbuf, tag,&record->flags) == -1)
 				goto error;
 			break;
 		default:
-			syslog(LOG_DEBUG, "Ignoring unknown record tag %d",
-			    tag);
-			tag_consume(evbuf);
+			syslog(LOG_DEBUG, "Ignoring unknown record tag %d", tag);
+			evtag_consume(evbuf);
 			break;
 		}
 	}

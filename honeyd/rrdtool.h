@@ -53,7 +53,7 @@ struct rrdtool_drv {
 	struct timeval tv_started;
 	struct bufferevent *evb;
 
-	struct event ev_timeout;
+	struct event *ev_timeout;
 	
 	TAILQ_HEAD(rrdtoolq, rrdtool_command) commands;
 };

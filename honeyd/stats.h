@@ -82,7 +82,7 @@ struct stats {
 	struct hashq hashes;
 	struct evbuffer *evbuf;
 
-	struct event ev_timeout;
+	struct event *ev_timeout;
 
 	uint8_t isactive:1,
 		needelete:1,
