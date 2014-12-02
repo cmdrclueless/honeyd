@@ -55,20 +55,23 @@
 #include <syslog.h>
 
 #include <dnet.h>
-#include <event.h>
+#include <event2/event.h>
+#include <event2/buffer.h>
+#include <event2/bufferevent.h>
 
 #include "update.h"
 
+extern struct event_base *honeyd_base_ev;
 char *security_update = NULL;
 
 static int update_ev_initialized;
-static struct event update_ev;
-static struct event update_connect_ev;
+static struct event *update_ev;
+static struct event *update_connect_ev;
 
-int make_socket(int (*f)(int, const struct sockaddr *, socklen_t), int type,
-    char *address, uint16_t port);
-void update_cb(int, short, void *);
-void update_connect_cb(int, short, void *);
+int make_socket(int (*f)(int, const struct sockaddr *, socklen_t), int type, char *address, uint16_t port);
+static void update_cb(evutil_socket_t, short, void *);
+static void update_connect_cb(int, short, void *);
+static void update_parse_information(char *data, size_t length);
 
 void
 update_check(void)
@@ -81,13 +84,12 @@ update_check(void)
 	if (!update_ev_initialized) {
 		update_ev_initialized = 1;
 
-		evtimer_set(&update_ev, update_cb, &update_ev);
+		update_ev = evtimer_new(honeyd_base_ev, update_cb, NULL);
 	}
 
 	if (!host_resolved) {
 		if (addr_pton("www.honeyd.org", &host_addr) == -1) {
-			syslog(LOG_WARNING, "%s: failed to resolve host.",
-			    __func__);
+			syslog(LOG_WARNING, "%s: failed to resolve host.", __func__);
 			goto reschedule;
 		}
 
@@ -100,14 +102,13 @@ update_check(void)
 		goto reschedule;
 	}
 
-	event_set(&update_connect_ev, fd, EV_WRITE,
-	    update_connect_cb, &update_connect_ev);
-	event_add(&update_connect_ev, NULL);
+	update_connect_ev = event_new(honeyd_base_ev, fd, EV_WRITE, update_connect_cb, NULL); 
+	event_add(update_connect_ev, NULL);
 
  reschedule:
 	timerclear(&tv);
 	tv.tv_sec = 24 * 60 * 60;
-	evtimer_add(&update_ev, &tv);
+	evtimer_add(update_ev, &tv);
 }
 
 static void
@@ -128,8 +129,8 @@ update_parse_information(char *data, size_t length)
 	syslog(LOG_WARNING, "SECURITY INFO: %s", security_update);
 }
 
-void
-update_cb(int fd, short what, void *arg)
+static void
+update_cb(evutil_socket_t fd, short what, void *arg)
 {
 	update_check();
 }
@@ -137,15 +138,15 @@ update_cb(int fd, short what, void *arg)
 static void
 update_readcb(struct bufferevent *bev, void *parameter)
 {
+	struct evbuffer *input = bufferevent_get_input(bev);
+
+	size_t len;
 	/* 
 	 * If we did not receive the complete request and we have
 	 * waited for too long already, then we drop the request.
 	 */
-	if (EVBUFFER_LENGTH(bev->input) > 32000) {
-		syslog(LOG_NOTICE,
-		    "Dropping update reply with size %d",
-		    EVBUFFER_LENGTH(bev->input));
-		close(bev->ev_read.ev_fd);
+	if ((len = evbuffer_get_length(input)) > 32000) {
+		syslog(LOG_NOTICE, "Dropping update reply with size %lu", len);
 		bufferevent_free(bev);
 		return;
 	}
@@ -164,44 +165,62 @@ update_writecb(struct bufferevent *bev, void *parameter)
 static void
 update_errorcb(struct bufferevent *bev, short what, void *parameter)
 {
-	char *data = evbuffer_find(bev->input, "\r\n\r\n", 4);
-	char *p, *end, *error_code;
+	struct evbuffer *input  = bufferevent_get_input(bev);
+	struct evbuffer_ptr end = evbuffer_search(input, "\r\n\r\n", 4, NULL);
 
-	if (!(what & EVBUFFER_EOF) || data == NULL)
+	if (!(what & BEV_EVENT_EOF) || end.pos == -1)
 		goto error;
 
-	end = EVBUFFER_DATA(bev->input);
-	p = strsep(&end, " ");
-	if (end == NULL || *end == '\0')
+	/* now wearch for the http response code, it will be on the first line
+	 * if it follows the standard HTTP protocol. If we found the input string
+	 * this cannot return a -1 for end.pos!
+	 */
+	end = evbuffer_search_eol(input, NULL, NULL, EVBUFFER_EOL_CRLF);
+	char * data = malloc(end.pos + 1);
+	if (data == NULL)
 		goto error;
 
-	error_code = strsep(&end, " ");
-	if (error_code == NULL || end == NULL || *end == '\0')
+	evbuffer_copyout(input, data, end.pos);
+	data[end.pos] = '\0';
+	
+	char * q = data;
+	strsep(&q, " ");
+	if (q == NULL || *q == '\0')
+		goto error;
+	
+	char *code = strsep(&q, " ");
+	if (code == NULL || q == NULL || *q == '\0')
+		goto error;
+	
+	if (strcmp(code, "200") != 0)
+		goto error;
+	
+	free(data);
+
+	end = evbuffer_search(input, "\r\n\r\n", 4, NULL);
+	evbuffer_drain(input, end.pos + 4);
+
+	size_t len = evbuffer_get_length(input);
+	data = (char *)malloc(len+1);
+	if (data == NULL)
 		goto error;
 
-	if (strcmp(error_code, "200"))
-		goto error;
+	evbuffer_copyout(input, data, len);
+	data[len] = '\0';
+	update_parse_information(data, len);
 
-	evbuffer_drain(bev->input,
-	    (int)(data - (int)EVBUFFER_DATA(bev->input) + 4));
+	free(data);
 
-	update_parse_information(EVBUFFER_DATA(bev->input),
-	    EVBUFFER_LENGTH(bev->input));
-
-	close(bev->ev_read.ev_fd);
 	bufferevent_free(bev);
 	return;
 
  error:
-	/* bufferevent_free should really close the file descriptor */
-	close(bev->ev_read.ev_fd);
-	syslog(LOG_WARNING, "%s: failed to get security update information",
-	    __func__);
+	syslog(LOG_WARNING, "%s: failed to get security update information", __func__);
 	bufferevent_free(bev);
 	return;
 }
 
-void
+static void
 update_make_request(struct bufferevent *bev)
 {
 	char *request =
@@ -223,31 +242,31 @@ update_make_request(struct bufferevent *bev)
 	bufferevent_write(bev, buf, strlen(buf));
 }
 
-void
-update_connect_cb(int fd, short what, void *arg)
+static void
+update_connect_cb(evutil_socket_t fd, short what, void *arg)
 {
 	struct bufferevent *bev = NULL;
 	int error;
 	socklen_t errsz = sizeof(error);
 
 	/* Check if the connection completed */
-	if (getsockopt(fd, SOL_SOCKET, SO_ERROR, &error, &errsz) == -1 ||
-	    error) {
+	if (getsockopt(fd, SOL_SOCKET, SO_ERROR, &error, &errsz) == -1 || error) {
 		syslog(LOG_WARNING, "%s: connection failed: %m", __func__);
 		close(fd);
 		return;
 	}
 
 	/* We successfully connected to the host */
-	bev = bufferevent_new(fd, update_readcb, update_writecb,
-	    update_errorcb, NULL);
+	bev = bufferevent_socket_new(honeyd_base_ev, fd, BEV_OPT_CLOSE_ON_FREE|BEV_OPT_THREADSAFE);
 	if (bev == NULL) {
 		syslog(LOG_WARNING, "%s: bufferevent_new: %m", __func__);
 		close(fd);
 		return;
 	}
+	bufferevent_setcb(bev, update_readcb, update_writecb, update_errorcb, NULL);
 
-	bufferevent_settimeout(bev, 60, 60);
+	struct timeval tout = { 60, 0 };
+	bufferevent_set_timeouts(bev, &tout, &tout);
 
 	update_make_request(bev);
 }

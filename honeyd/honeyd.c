@@ -70,7 +70,7 @@
 #undef timeout_initialized
 
 #include <dnet.h>
-#include <event.h>
+#include <event2/event.h>
 
 #include "honeyd.h"
 #include "template.h"
@@ -110,15 +110,45 @@
 #endif
 
 /* Prototypes */
-void honeyd_tcp_timeout(int, short, void *);
-void honeyd_udp_timeout(int, short, void *);
-void honeyd_delay_cb(int, short, void *);
-enum forward honeyd_route_packet(struct ip_hdr *, u_int, struct addr *, 
-    struct addr *, int *);
-
-void tcp_retrans_timeout(int, short, void *);
-void icmp_error_send(struct template *, struct addr *, uint8_t, uint8_t,
-    struct ip_hdr *, struct spoof);
+static void syslog_init(int argc, char *[]);
+static void honeyd_rrd_cb(evutil_socket_t, short, void *);
+static void honeyd_rrd_start(const char *);
+static void honeyd_init(void);
+#ifdef HAVE_PYTHON
+static int honeyd_webserver_enabled(void);
+#endif
+static void honeyd_exit(int);
+static void honeyd_ether_cb(struct arp_req *, int, void *);
+static void honeyd_deliver_ethernet(struct interface *, struct addr *, struct addr *, struct addr *, struct ip_hdr *, u_int);
+static struct ip_hdr *honeyd_delay_own_memory(struct delay *, struct ip_hdr *, u_int);
+static inline void honeyd_send_normally(struct ip_hdr *ip, u_int);
+static void honeyd_delay_cb(evutil_socket_t, short, void *);
+static void honeyd_delay_packet(struct template *, struct ip_hdr *, u_int, const struct addr *, const struct addr *, int, int, struct spoof);
+static void connection_insert(struct tree *, struct conlru *, struct tuple *);
+static void connection_remove(struct tree *, struct conlru *, struct tuple *);
+static void connection_update(struct conlru *, struct tuple *);
+static void tcp_retrans_timeout(evutil_socket_t, short, void *);
+static void honeyd_tcp_timeout(evutil_socket_t, short, void *);
+static void honeyd_udp_timeout(evutil_socket_t, short, void *);
+static int honeyd_block(struct template *, int, int);
+static void honeyd_varexpand(struct tcp_con *, char *, u_int);
+static struct action *honeyd_port(struct template *, int, u_short);
+static int proxy_connect(struct tuple *, struct command *, struct addrinfo *, char *, void *);
+static void generic_connect(struct template *, struct tuple *, struct command *, void *);
+static void icmp_send(struct template *, u_char *, uint8_t, u_int, uint16_t, uint8_t, int, ip_addr_t, ip_addr_t, struct spoof);
+static void icmp_error_send(struct template *, struct addr *, uint8_t, uint8_t, struct ip_hdr *, struct spoof);
+static void tcp_do_options(struct tcp_con *, struct tcp_hdr *, int);
+static void tcp_recv_cb(struct template *, u_char *, u_short);
+static void udp_recv_cb(struct template *, u_char *, u_short);
+static void icmp_recv_cb(struct template *, u_char *, u_short);
+static inline int honeyd_router_drop(struct link_drop *, struct timeval *);
+static enum forward honeyd_route_packet(struct ip_hdr *, u_int, struct addr *, struct addr *, int *);
+static void honeyd_sigchld(evutil_socket_t, short, void *);
+static void honeyd_signal(evutil_socket_t, short, void *);
+static void honeyd_sighup(evutil_socket_t, short, void *);
+static void honeyd_sigusr(evutil_socket_t, short, void *);
+static void unittest(void);
+int main(int argc, char *[]); /* NOT STATIC */
 
 struct tree tcpcons;
 struct conlru tcplru;
@@ -143,9 +173,12 @@ struct stats_network stats_network = {
 SPLAY_PROTOTYPE(tree, tuple, node, conhdr_compare);
 SPLAY_GENERATE(tree, tuple, node, conhdr_compare);
 
+/* The global event_base used by all events for the honeypot */
+struct event_base	*honeyd_base_ev;
+
 struct rrdtool_drv	*honeyd_rrd_drv;
 struct rrdtool_db	*honeyd_traffic_db;
-struct event		 honeyd_rrd_ev;
+struct event		*honeyd_rrd_ev;
 FILE			*honeyd_servicefp;
 struct timeval		 honeyd_uptime;
 static FILE		*honeyd_logfp;
@@ -178,7 +211,7 @@ char			*honeyd_webserver_root = PATH_HONEYDDATA \
 char			*honeyd_rrdtool_path = PATH_RRDTOOL;
 
 /* can be used by unittests to do bad stuff */
-void (*honeyd_delay_callback)(int, short, void *) = honeyd_delay_cb;
+void (*honeyd_delay_callback)(evutil_socket_t, short, void *) = honeyd_delay_cb;
 
 static char		*logfile = NULL;	/* Log file names */
 static char		*servicelog = NULL;
@@ -297,10 +330,7 @@ tuple_find(struct tree *root, struct tuple *key)
 	return SPLAY_FIND(tree, root, key);
 }
 
-/*
- * Iterate over all connection objects.
- */
-
+/* extern */
 int
 tuple_iterate(struct conlru *head, int (*f)(struct tuple *, void *), void *arg)
 {
@@ -345,13 +375,12 @@ syslog_init(int argc, char *argv[])
 /*
  * Update traffic statistics for honeyd.
  */
-
-void
-honeyd_rrd_cb(int fd, short what, void *arg)
+static void
+honeyd_rrd_cb(evutil_socket_t fd, short what, void *arg)
 {
 	static int count;
 	char line[1024];
-	struct event *ev = arg;
+	struct event *ev = *((struct event **)arg);
 	struct timeval tv;
 
 	snprintf(line, sizeof(line), "%f:%f",
@@ -397,7 +426,7 @@ honeyd_rrd_cb(int fd, short what, void *arg)
 	}
 }
 
-void
+static void
 honeyd_rrd_start(const char *rrdtool_path)
 {
 	/* Initialize our traffic stats for rrdtool */
@@ -417,15 +446,14 @@ honeyd_rrd_start(const char *rrdtool_path)
 	rrdtool_db_commit(honeyd_traffic_db);
 
 	/* Start the periodic traffic update timer */
-	evtimer_set(&honeyd_rrd_ev, honeyd_rrd_cb, &honeyd_rrd_ev);
+	honeyd_rrd_ev = evtimer_new(honeyd_base_ev, honeyd_rrd_cb, &honeyd_rrd_ev);
 	honeyd_rrd_cb(-1, EV_TIMEOUT, &honeyd_rrd_ev);
 }
 
 /*
  * Initializes data structures pertaining to the daemon
  */
-
-void
+static void
 honeyd_init(void)
 {
 	struct rlimit rl;
@@ -488,7 +516,7 @@ honeyd_is_webserver_enabled(void)
 }
 #endif
 
-void
+static void
 honeyd_exit(int status)
 {
 	honeyd_logend(honeyd_logfp);
@@ -512,8 +540,7 @@ honeyd_exit(int status)
 }
 
 /* Encapsulate a packet into Ethernet */
-
-void
+static void
 honeyd_ether_cb(struct arp_req *req, int success, void *arg)
 {
 	u_char pkt[HONEYD_MTU + 40]; /* XXX - Enough? */
@@ -549,11 +576,8 @@ honeyd_ether_cb(struct arp_req *req, int success, void *arg)
  * Delivers an IP packet to a specific interface.
  * Generates ARP request if necessary.
  */
-
-void
-honeyd_deliver_ethernet(struct interface *inter,
-    struct addr *src_pa, struct addr *src_ha,
-    struct addr *dst_pa, struct ip_hdr *ip, u_int iplen)
+static void
+honeyd_deliver_ethernet(struct interface *inter, struct addr *src_pa, struct addr *src_ha, struct addr *dst_pa, struct ip_hdr *ip, u_int iplen)
 {
 	struct arp_req *req;
 
@@ -584,8 +608,7 @@ honeyd_deliver_ethernet(struct interface *inter,
  * the delay descriptor.  We either tell to not free the
  * memory or just make our own copy.
  */
-
-struct ip_hdr *
+static struct ip_hdr *
 honeyd_delay_own_memory(struct delay *delay, struct ip_hdr *ip, u_int iplen)
 {
 	/* If we are not supposed to free the buffer then we do not own it */
@@ -624,8 +647,7 @@ honeyd_delay_own_memory(struct delay *delay, struct ip_hdr *ip, u_int iplen)
  *
  * It needs to unreference the passed template value.
  */
-
-static __inline void
+static inline void
 honeyd_send_normally(struct ip_hdr *ip, u_int iplen)
 {
 	ip_checksum(ip, iplen);
@@ -640,8 +662,8 @@ honeyd_send_normally(struct ip_hdr *ip, u_int iplen)
 	}
 }
 
-void
-honeyd_delay_cb(int fd, short which, void *arg)
+static void
+honeyd_delay_cb(evutil_socket_t fd, short which, void *arg)
 {
 	struct delay *delay = arg;
 	struct ip_hdr *ip = delay->ip;
@@ -757,11 +779,8 @@ honeyd_delay_cb(int fd, short which, void *arg)
  * Delays a packet for a specified amount of ms to simulate routing delay.
  * Host is used for the router that might generate a XCEED message.
  */
-
-void
-honeyd_delay_packet(struct template *tmpl, struct ip_hdr *ip, u_int iplen,
-    const struct addr *src, const struct addr *dst, int ms, int flags,
-    struct spoof spoof)
+static void
+honeyd_delay_packet(struct template *tmpl, struct ip_hdr *ip, u_int iplen, const struct addr *src, const struct addr *dst, int ms, int flags, struct spoof spoof)
 {
 	struct delay *delay, tmp_delay;
 	struct timeval tv;
@@ -803,11 +822,11 @@ honeyd_delay_packet(struct template *tmpl, struct ip_hdr *ip, u_int iplen,
 	delay->spoof = spoof;
 
 	if (ms) {
-		evtimer_set(&delay->timeout, honeyd_delay_callback, delay);
+		delay->timeout = evtimer_new(honeyd_base_ev, honeyd_delay_callback, delay);
 		timerclear(&tv);
 		tv.tv_sec = ms / 1000;
 		tv.tv_usec = (ms % 1000) * 1000;
-		evtimer_add(&delay->timeout, &tv);
+		evtimer_add(delay->timeout, &tv);
 	} else
 		honeyd_delay_callback(-1, EV_TIMEOUT, delay);
 }
@@ -818,7 +837,6 @@ honeyd_delay_packet(struct template *tmpl, struct ip_hdr *ip, u_int iplen,
  * characteristics like packet loss, latency and ttl decrements are
  * taken into consideration.
  */
-
 void
 honeyd_ip_send(u_char *pkt, u_int iplen, struct spoof spoof)
 {
@@ -907,7 +925,7 @@ connection_remove(struct tree *tree, struct conlru *head, struct tuple *hdr)
 	SPLAY_REMOVE(tree, tree, hdr);
 	TAILQ_REMOVE(head, hdr, next);
 
-	evtimer_del(&hdr->timeout);
+	evtimer_del(hdr->timeout);
 }
 
 /* Called when a connection received data and has not been idle */
@@ -918,7 +936,7 @@ connection_update(struct conlru *head, struct tuple *hdr)
 	TAILQ_REMOVE(head, hdr, next);
 	TAILQ_INSERT_HEAD(head, hdr, next);
 
-	generic_timeout(&hdr->timeout, HONEYD_IDLE_TIMEOUT);
+	generic_timeout(hdr->timeout, HONEYD_IDLE_TIMEOUT);
 }
 
 struct tcp_con *
@@ -942,8 +960,8 @@ tcp_new(struct ip_hdr *ip, struct tcp_hdr *tcp, int local)
 
 	honeyd_nconnects++;
 	honeyd_settcp(con, ip, tcp, local);
-	evtimer_set(&con->conhdr.timeout, honeyd_tcp_timeout, con);
-	evtimer_set(&con->retrans_timeout, tcp_retrans_timeout, con);
+	con->conhdr.timeout  = evtimer_new(honeyd_base_ev, honeyd_tcp_timeout, con);
+	con->retrans_timeout = evtimer_new(honeyd_base_ev, tcp_retrans_timeout, con);
 
 	connection_insert(&tcpcons, &tcplru, &con->conhdr);
 
@@ -969,7 +987,7 @@ tcp_free(struct tcp_con *con)
 	    NULL, 0);
 	honeyd_log_flowend(honeyd_logfp, IP_PROTO_TCP, &con->conhdr);
 
-	evtimer_del(&con->retrans_timeout);
+	evtimer_del(con->retrans_timeout);
 
 	if (con->cmd_pfd > 0)
 		cmd_free(&con->cmd);
@@ -984,8 +1002,8 @@ tcp_free(struct tcp_con *con)
 	free(con);
 }
 
-void
-tcp_retrans_timeout(int fd, short event, void *arg)
+static void
+tcp_retrans_timeout(evutil_socket_t fd, short event, void *arg)
 {
 	struct tcp_con *con = arg;
 
@@ -1005,7 +1023,7 @@ tcp_retrans_timeout(int fd, short event, void *arg)
 		tcp_send(con, TH_SYN, NULL, 0);
 		con->snd_una++;
 		
-		generic_timeout(&con->retrans_timeout, con->retrans_time);
+		generic_timeout(con->retrans_timeout, con->retrans_time);
 		break;
 
 	case TCP_STATE_SYN_RECEIVED:
@@ -1013,7 +1031,7 @@ tcp_retrans_timeout(int fd, short event, void *arg)
 		tcp_send(con, TH_SYN|TH_ACK, NULL, 0);
 		con->snd_una++;
 		
-		generic_timeout(&con->retrans_timeout, con->retrans_time);
+		generic_timeout(con->retrans_timeout, con->retrans_time);
 		break;
 
 	default:
@@ -1037,7 +1055,7 @@ udp_new(struct ip_hdr *ip, struct udp_hdr *udp, int local)
 
 	connection_insert(&udpcons, &udplru, &con->conhdr);
 
-	evtimer_set(&con->conhdr.timeout, honeyd_udp_timeout, con);
+	con->conhdr.timeout = evtimer_new(honeyd_base_ev, honeyd_udp_timeout, con);
 
 	honeyd_log_flownew(honeyd_logfp, IP_PROTO_UDP, &con->conhdr);
 
@@ -1077,8 +1095,8 @@ udp_free(struct udp_con *con)
 	free(con);
 }
 
-void
-honeyd_tcp_timeout(int fd, short event, void *arg)
+static void
+honeyd_tcp_timeout(evutil_socket_t fd, short event, void *arg)
 {
 	struct tcp_con *con = arg;
 
@@ -1088,8 +1106,8 @@ honeyd_tcp_timeout(int fd, short event, void *arg)
 	tcp_free(con);
 }
 
-void
-honeyd_udp_timeout(int fd, short event, void *arg)
+static void
+honeyd_udp_timeout(evutil_socket_t fd, short event, void *arg)
 {
 	struct udp_con *con = arg;
 
@@ -1114,7 +1132,7 @@ honeyd_protocol(struct template *tmpl, int proto)
 	}
 }
 
-int
+static int
 honeyd_block(struct template *tmpl, int proto, int number)
 {
 	struct port *port;
@@ -1132,7 +1150,7 @@ honeyd_block(struct template *tmpl, int proto, int number)
 	return (action->status == PORT_BLOCK);
 }
 
-void
+static void
 honeyd_varexpand(struct tcp_con *con, char *line, u_int linesize)
 {
 	char asc[32], *p;
@@ -1164,7 +1182,7 @@ honeyd_varexpand(struct tcp_con *con, char *line, u_int linesize)
  * at the default template of connections.
  */
 
-struct action *
+static struct action *
 honeyd_port(struct template *tmpl, int proto, u_short number)
 {
 	struct port *port;
@@ -1187,9 +1205,8 @@ honeyd_port(struct template *tmpl, int proto, u_short number)
  * generate correct address information.
  */
 
-int
-proxy_connect(struct tuple *hdr, struct command *cmd, struct addrinfo *ai,
-    char *line, void *arg)
+static int
+proxy_connect(struct tuple *hdr, struct command *cmd, struct addrinfo *ai, char *line, void *arg)
 {
 	int res;
 
@@ -1254,9 +1271,8 @@ tcp_setupconnect(struct tcp_con *con)
 	return (-1);
 }
 
-void
-generic_connect(struct template *tmpl, struct tuple *hdr,
-    struct command *cmd, void *con)
+static void
+generic_connect(struct template *tmpl, struct tuple *hdr, struct command *cmd, void *con)
 {
 	char line[512], command[512];
 	char *argv[32], *p, *p2;
@@ -1505,10 +1521,10 @@ tcp_senddata(struct tcp_con *con, uint8_t flags)
 	 */
 	needretrans = con->poff || (con->sentfin && !con->finacked);
 
-	if (needretrans && !evtimer_pending(&con->retrans_timeout, NULL)) {
+	if (needretrans && !evtimer_pending(con->retrans_timeout, NULL)) {
 		if (!con->retrans_time)
 			con->retrans_time = 1;
-		generic_timeout(&con->retrans_timeout, con->retrans_time);
+		generic_timeout(con->retrans_timeout, con->retrans_time);
 	}
 }
 
@@ -1527,10 +1543,8 @@ tcp_sendfin(struct tcp_con *con)
 	}
 }
 
-void
-icmp_send(struct template *tmpl,
-    u_char *pkt, uint8_t tos, u_int iplen, uint16_t df, uint8_t ttl,
-    int proto, ip_addr_t src, ip_addr_t dst, struct spoof spoof)
+static void
+icmp_send(struct template *tmpl, u_char *pkt, uint8_t tos, u_int iplen, uint16_t df, uint8_t ttl, int proto, ip_addr_t src, ip_addr_t dst, struct spoof spoof)
 {
 	struct ip_hdr ip;
 	uint16_t ipid;
@@ -1552,9 +1566,8 @@ icmp_send(struct template *tmpl,
 	honeyd_ip_send(pkt, iplen, spoof);
 }
 
-void
-icmp_error_send(struct template *tmpl, struct addr *addr,
-    uint8_t type, uint8_t code, struct ip_hdr *rip, struct spoof spoof)
+static void
+icmp_error_send(struct template *tmpl, struct addr *addr, uint8_t type, uint8_t code, struct ip_hdr *rip, struct spoof spoof)
 {
 	u_char *pkt;
 	u_int iplen;
@@ -1610,10 +1623,9 @@ icmp_error_send(struct template *tmpl, struct addr *addr,
  * 		ping programs to determine RTT
  * param len Length of the payload to return
  */
+/* extern */
 void
-icmp_echo_reply(struct template *tmpl,
-    struct ip_hdr *rip, uint8_t code, uint8_t tos,
-    uint16_t offset, uint8_t ttl, u_char *payload, u_int len, struct spoof spoof)
+icmp_echo_reply(struct template *tmpl, struct ip_hdr *rip, uint8_t code, uint8_t tos, uint16_t offset, uint8_t ttl, u_char *payload, u_int len, struct spoof spoof)
 {
 	u_char *pkt;
 	u_int iplen;
@@ -1653,9 +1665,9 @@ icmp_echo_reply(struct template *tmpl,
  * 	icmp header.
  * param ttl Time to live of the emulated OS (<65, <129, <256)
  */ 
+/* extern */
 void
-icmp_timestamp_reply(struct template *tmpl, struct ip_hdr *rip,
-    struct icmp_msg_timestamp* icmp_rip, uint8_t ttl, struct spoof spoof)
+icmp_timestamp_reply(struct template *tmpl, struct ip_hdr *rip, struct icmp_msg_timestamp *icmp_rip, uint8_t ttl, struct spoof spoof)
 {
 	u_char *pkt;
 	u_int iplen;
@@ -1712,9 +1724,9 @@ icmp_timestamp_reply(struct template *tmpl, struct ip_hdr *rip,
  * param ttl time to live of OS simulated (<65, <129, or <255)
  * param mask mask of the emulated OS (i.e. 255.255.0.0)
  */ 
+/* extern */
 void
-icmp_mask_reply(struct template *tmpl, struct ip_hdr *rip, 
-	struct icmp_msg_idseq *idseq, uint8_t ttl, uint32_t addrmask, struct spoof spoof)
+icmp_mask_reply(struct template *tmpl, struct ip_hdr *rip, struct icmp_msg_idseq *idseq, uint8_t ttl, uint32_t addrmask, struct spoof spoof)
 {
 	u_char *pkt;
 	u_int iplen;
@@ -1753,9 +1765,9 @@ icmp_mask_reply(struct template *tmpl, struct ip_hdr *rip,
  * 	from the info request icmp header.
  * param ttl Time to live of the emulated OS (<65, <129, <256)
  */ 
+/* extern */
 void
-icmp_info_reply(struct template *tmpl, struct ip_hdr *rip, 
-		struct icmp_msg_idseq *idseq, uint8_t ttl, struct spoof spoof)
+icmp_info_reply(struct template *tmpl, struct ip_hdr *rip, struct icmp_msg_idseq *idseq, uint8_t ttl, struct spoof spoof)
 {
 	u_char *pkt;
 	u_int iplen;
@@ -1776,7 +1788,7 @@ icmp_info_reply(struct template *tmpl, struct ip_hdr *rip,
 	    IP_PROTO_ICMP, rip->ip_dst, rip->ip_src, spoof);
 }
 
-void
+static void
 tcp_do_options(struct tcp_con *con, struct tcp_hdr *tcp, int isonsyn)
 {
 	u_char *p, *end;
@@ -1822,6 +1834,7 @@ tcp_do_options(struct tcp_con *con, struct tcp_hdr *tcp, int isonsyn)
 	}
 }
 
+/* extern */
 void
 generic_timeout(struct event *ev, int seconds)
 {
@@ -1900,12 +1913,12 @@ generic_timeout(struct event *ev, int seconds)
 			} \
 		} else if (acked) { \
 			con->retrans_time = 0; \
-			evtimer_del(&con->retrans_timeout); \
+			evtimer_del(con->retrans_timeout); \
 			con->dupacks=0; \
 		} \
 } while (0)
 
-void
+static void
 tcp_recv_cb(struct template *tmpl, u_char *pkt, u_short pktlen)
 {
 	char *comment = NULL;
@@ -2022,11 +2035,11 @@ tcp_recv_cb(struct template *tmpl, u_char *pkt, u_short pktlen)
 		con->snd_una++;
 		con->state = TCP_STATE_SYN_RECEIVED;
 
-		generic_timeout(&con->conhdr.timeout, HONEYD_SYN_WAIT);
+		generic_timeout(con->conhdr.timeout, HONEYD_SYN_WAIT);
 
 		/* Get initial value from personality */
 		con->retrans_time = 3;
-		generic_timeout(&con->retrans_timeout, con->retrans_time);
+		generic_timeout(con->retrans_timeout, con->retrans_time);
 
 		return;
 	}
@@ -2099,7 +2112,7 @@ tcp_recv_cb(struct template *tmpl, u_char *pkt, u_short pktlen)
 
 		/* Clear retransmit timeout */
 		con->retrans_time = 0;
-		evtimer_del(&con->retrans_timeout);
+		evtimer_del(con->retrans_timeout);
 
 		connection_update(&tcplru, &con->conhdr);
 
@@ -2190,8 +2203,7 @@ tcp_recv_cb(struct template *tmpl, u_char *pkt, u_short pktlen)
 
 		if (tiflags & TH_FIN && !(con->flags & TCP_TARPIT)) {
 			con->state = TCP_STATE_CLOSING;
-			generic_timeout(&con->conhdr.timeout,
-			    HONEYD_CLOSE_WAIT);
+			generic_timeout(con->conhdr.timeout, HONEYD_CLOSE_WAIT);
 			dlen++;
 		} else {
 			connection_update(&tcplru, &con->conhdr);
@@ -2281,6 +2293,7 @@ tcp_recv_cb(struct template *tmpl, u_char *pkt, u_short pktlen)
 	    pktlen, tcp->th_flags, comment);
 }
 
+/* extern */
 int
 udp_send(struct udp_con *con, u_char *payload, u_int len)
 {
@@ -2323,12 +2336,12 @@ udp_send(struct udp_con *con, u_char *payload, u_int len)
 
 	honeyd_ip_send(pkt, iplen, spoof);
 
-	generic_timeout(&con->conhdr.timeout, HONEYD_UDP_WAIT);
+	generic_timeout(con->conhdr.timeout, HONEYD_UDP_WAIT);
 
 	return (len);
 }
 
-void
+static void
 udp_recv_cb(struct template *tmpl, u_char *pkt, u_short pktlen)
 {
 	struct ip_hdr *ip = NULL;
@@ -2397,7 +2410,7 @@ udp_recv_cb(struct template *tmpl, u_char *pkt, u_short pktlen)
 	}
 
 	/* Keep this state active */
-	generic_timeout(&con->conhdr.timeout, HONEYD_UDP_WAIT);
+	generic_timeout(con->conhdr.timeout, HONEYD_UDP_WAIT);
 	con->softerrors = 0;
 
 	/* Statistics */
@@ -2432,7 +2445,7 @@ print_spoof("udp_recv_cb after", spoof);
 	    pktlen, 0, NULL);
 }
 
-void
+static void
 icmp_recv_cb(struct template *tmpl, u_char *pkt, u_short pktlen)
 {
 	struct ip_hdr *ip = NULL;
@@ -2617,6 +2630,7 @@ icmp_recv_cb(struct template *tmpl, u_char *pkt, u_short pktlen)
 	}
 }
 
+/* extern */
 void
 honeyd_dispatch(struct template *tmpl, struct ip_hdr *ip, u_short iplen)
 {
@@ -2657,7 +2671,7 @@ honeyd_dispatch(struct template *tmpl, struct ip_hdr *ip, u_short iplen)
  * a delay time of low and high in ms.
  */
 
-static __inline int
+static inline int
 honeyd_router_drop(struct link_drop *drop, struct timeval *tv)
 {
 	int msec;
@@ -2690,9 +2704,8 @@ honeyd_router_drop(struct link_drop *drop, struct timeval *tv)
  *	FW_DROP - means that the packet has been handled by dropping, etc.
  */
 
-enum forward
-honeyd_route_packet(struct ip_hdr *ip, u_int iplen, 
-    struct addr *gw, struct addr *addr, int *pdelay)
+static enum forward
+honeyd_route_packet(struct ip_hdr *ip, u_int iplen, struct addr *gw, struct addr *addr, int *pdelay)
 {
 	struct router *r, *lastrouter = NULL;
 	struct router_entry *rte = NULL;
@@ -2832,6 +2845,7 @@ honeyd_route_packet(struct ip_hdr *ip, u_int iplen,
 	return (external ? FW_EXTERNAL : FW_INTERNAL);
 }
 
+/* extern */
 void
 honeyd_input(const struct interface *inter, struct ip_hdr *ip, u_short iplen)
 {
@@ -2940,7 +2954,6 @@ honeyd_input(const struct interface *inter, struct ip_hdr *ip, u_short iplen)
 	honeyd_delay_packet(NULL, ip, iplen, NULL, NULL, delay, flags, no_spoof);
 }
 
-
 void
 honeyd_recv_cb(u_char *ag, const struct pcap_pkthdr *pkthdr, const u_char *pkt)
 {
@@ -3014,8 +3027,8 @@ honeyd_recv_cb(u_char *ag, const struct pcap_pkthdr *pkthdr, const u_char *pkt)
 	honeyd_input(inter, ip, iplen);
 }
 
-void
-honeyd_sigchld(int fd, short what, void *arg)
+static void
+honeyd_sigchld(evutil_socket_t fd, short what, void *arg)
 {
 	pid_t pid;
 	while ((pid = waitpid(-1, NULL, WNOHANG)) > 0) {
@@ -3026,15 +3039,15 @@ honeyd_sigchld(int fd, short what, void *arg)
 	}
 }
 
-void
-honeyd_signal(int fd, short what, void *arg)
+static void
+honeyd_signal(evutil_socket_t fd, short what, void *arg)
 {
 	syslog(LOG_NOTICE, "exiting on signal %d", fd);
 	honeyd_exit(0);
 }
 
-void
-honeyd_sighup(int fd, short what, void *arg)
+static void
+honeyd_sighup(evutil_socket_t fd, short what, void *arg)
 {
 	syslog(LOG_NOTICE, "rereading configuration on signal %d", fd);
 
@@ -3044,8 +3057,8 @@ honeyd_sighup(int fd, short what, void *arg)
 		config_read(config.config);
 }
 
-void
-honeyd_sigusr(int fd, short what, void *arg)
+static void
+honeyd_sigusr(evutil_socket_t fd, short what, void *arg)
 {
 	syslog(LOG_NOTICE, "rotating log files on signal %d", fd);
 
@@ -3074,7 +3087,7 @@ struct _unittest {
 	{ NULL, NULL}
 };
 
-void
+static void
 unittest(void)
 {
 	struct _unittest *ut;
@@ -3092,7 +3105,12 @@ int
 main(int argc, char *argv[])
 {
 	extern int interface_dopoll;
-	struct event sigterm_ev, sigint_ev, sighup_ev, sigchld_ev, sigusr_ev;
+	/* signal handling */
+	struct event 	*sigterm_ev,
+			*sigint_ev,
+			*sighup_ev,
+			*sigchld_ev,
+			*sigusr_ev;
 	char *dev[HONEYD_MAX_INTERFACES];
 	char **orig_argv;
 	struct addr stats_dst;
@@ -3265,10 +3283,10 @@ main(int argc, char *argv[])
 	interface_prevent_init();
 
 	/* Initalize libevent */
-	event_init();
+	honeyd_base_ev = event_base_new();
 
 	/* Three priorities - UI connections always get a better priority */
-	event_priority_init(3);
+	event_base_priority_init(honeyd_base_ev, 3);
 
 	syslog_init(orig_argc, orig_argv);
 
@@ -3279,7 +3297,7 @@ main(int argc, char *argv[])
 	/* Initialize honeyd's callback hooks */
 	hooks_init();
 
-	tagging_init();
+	evtag_init();
 	arp_init();
 	interface_initialize(honeyd_recv_cb);
 	config_init();
@@ -3447,16 +3465,17 @@ main(int argc, char *argv[])
 		return (-1);
 	}
 
-	signal_set(&sigint_ev, SIGINT, honeyd_signal, NULL);
-	signal_add(&sigint_ev, NULL);
-	signal_set(&sigterm_ev, SIGTERM, honeyd_signal, NULL);
-	signal_add(&sigterm_ev, NULL);
-	signal_set(&sigchld_ev, SIGCHLD, honeyd_sigchld, NULL);
-	signal_add(&sigchld_ev, NULL);
-	signal_set(&sighup_ev, SIGHUP, honeyd_sighup, NULL);
-	signal_add(&sighup_ev, NULL);
-	signal_set(&sigusr_ev, SIGUSR1, honeyd_sigusr, NULL);
-	signal_add(&sigusr_ev, NULL);
+#define __init_signal(b,e,x,f) \
+	(e) = evsignal_new((b),(x),(f),NULL); \
+	evsignal_add((e), NULL)
+
+	__init_signal(honeyd_base_ev, sigint_ev,  SIGINT,  honeyd_signal);
+	__init_signal(honeyd_base_ev, sigterm_ev, SIGTERM, honeyd_signal);
+	__init_signal(honeyd_base_ev, sigchld_ev, SIGCHLD, honeyd_sigchld);
+	__init_signal(honeyd_base_ev, sighup_ev,  SIGHUP,  honeyd_sighup);
+	__init_signal(honeyd_base_ev, sigusr_ev,  SIGUSR1, honeyd_sigusr);
+
+#undef __init_signal
 
 	/* Start logging via rrd */
 	if (honeyd_rrdtool_path != NULL && strlen(honeyd_rrdtool_path))
@@ -3470,7 +3489,7 @@ main(int argc, char *argv[])
 	if (servicelog != NULL)
 		honeyd_servicefp = honeyd_logstart(servicelog);
 
-	event_dispatch();
+	event_base_dispatch(honeyd_base_ev);
 
 	syslog(LOG_ERR, "Kqueue does not recognize bpf filedescriptor.");
 
@@ -3482,6 +3501,7 @@ main(int argc, char *argv[])
  * going to use.
  */
 
+/* extern */
 void
 honeyd_use_uid(uid_t uid)
 {
@@ -3489,6 +3509,7 @@ honeyd_use_uid(uid_t uid)
 		honeyd_needsroot = 1;
 }
 
+/* extern */
 void
 honeyd_use_gid(gid_t gid)
 {

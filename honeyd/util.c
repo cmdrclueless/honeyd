@@ -85,7 +85,8 @@
 
 #include <pcap.h>
 #include <dnet.h>
-#include <event.h>
+#include <event2/event.h>
+#include <event2/buffer.h>
 
 #include "honeyd.h"
 #include "util.h"

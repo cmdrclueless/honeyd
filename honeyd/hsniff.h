@@ -50,7 +50,7 @@ struct tcp_track {
 
 	TAILQ_HEAD(tcpq, tcp_segment) segments;
 
-	struct event timeout;
+	struct event *timeout;
 };
 
 void hsniff_tcp_timeout(int, short, void *);

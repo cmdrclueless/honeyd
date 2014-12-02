@@ -54,7 +54,7 @@ err(int eval, const char *fmt, ...)
 		(void)fprintf(stderr, ": ");
 	}
 	va_end(ap);
-	(void)fprintf(stderr, "%s\n", strerror(errno));
+	(void)fprintf(stderr, "[%d]%s\n", errno, strerror(errno));
 	exit(eval);
 }
 
@@ -69,7 +69,7 @@ warn(const char *fmt, ...)
 		(void)fprintf(stderr, ": ");
 	}
 	va_end(ap);
-	(void)fprintf(stderr, "%s\n", strerror(errno));
+	(void)fprintf(stderr, "[%d]%s\n", errno, strerror(errno));
 }
 
 void

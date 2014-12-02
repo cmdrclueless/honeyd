@@ -59,13 +59,16 @@
 #include <getopt.h>
 #include <err.h>
 
-#include <event.h>
-#include <evdns.h>
+#include <event2/event.h>
+#include <event2/dns.h>
 
 #include "util.h"
 #include "smtp.h"
 
 /* globals */
+
+struct event_base *honeyd_base_ev;
+struct evdns_base *honeyd_base_evdns;
 
 extern FILE *flog_email;	/* log the email transactions somewhere */
 extern const char *log_datadir;	/* log the email transactions somewhere */
@@ -85,7 +88,7 @@ usage(char *progname)
 int
 main(int argc, char **argv)
 {
-	struct event bind_ev;
+	struct event *bind_ev;
 	char *progname = argv[0];
 	char *logfile = NULL;
 	int ch;
@@ -122,13 +125,12 @@ main(int argc, char **argv)
 		fprintf(stderr, "Logging to %s\n", logfile);
 	}
 
-	event_init();
-
-	evdns_init();
+	honeyd_base_ev = event_base_new();
+	honeyd_base_evdns = evdns_base_new(honeyd_base_ev, 1);
 
 	smtp_bind_socket(&bind_ev, port);
 	
-	event_dispatch();
+	event_base_dispatch(honeyd_base_ev);
 
 	exit(0);
 }

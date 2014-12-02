@@ -36,14 +36,15 @@
 struct interface {
 	TAILQ_ENTRY(interface) next;
 
-	struct intf_entry if_ent;
 	int if_addrbits;
-	struct event if_recvev;
+	struct event *if_recvev;
 	pcap_t *if_pcap;
 	eth_t *if_eth;
 	int if_dloff;
 
 	char if_filter[1024];
+	struct intf_entry if_ent;
+	char if_ent_extra[128];
 };
 
 /* disables event methods that do not work with bpf */

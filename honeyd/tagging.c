@@ -52,104 +52,27 @@
 #include <syslog.h>
 #include <unistd.h>
 
-#include <event.h>
+#include <event2/event.h>
+#include <event2/buffer.h>
+#include <event2/tag.h>
 #include <pcap.h>
 #include <dnet.h>
 
 #include "tagging.h"
 
-struct evbuffer *_buf;
-
-void
-tagging_init()
-{
-	_buf = evbuffer_new();
-}
-
-/* 
- * We encode integer's by nibbles; the first nibble contains the number
- * of significant nibbles - 1;  this allows us to encode up to 64-bit
- * integers.  This function is byte-order independent.
- */
-
-void
-encode_int(struct evbuffer *evbuf, uint32_t number)
-{
-	int off = 1, nibbles = 0;
-	uint8_t data[5];
-
-	memset(data, 0, sizeof(data));
-	while (number) {
-		if (off & 0x1)
-			data[off/2] = (data[off/2] & 0xf0) | (number & 0x0f);
-		else
-			data[off/2] = (data[off/2] & 0x0f) |
-			    ((number & 0x0f) << 4);
-		number >>= 4;
-		off++;
-	}
-
-	if (off > 2)
-		nibbles = off - 2;
-
-	/* Off - 1 is the number of encoded nibbles */
-	data[0] = (data[0] & 0x0f) | ((nibbles & 0x0f) << 4);
-
-	evbuffer_add(evbuf, data, (off + 1) / 2);
-}
-
-/*
- * Marshal a data type, the general format is as follows:
- *
- * tag number: one byte; length: var bytes; payload: var bytes
- */
-
-void
-tag_marshal(struct evbuffer *evbuf, uint8_t tag, void *data, uint16_t len)
-{
-	evbuffer_add(evbuf, &tag, sizeof(tag));
-	encode_int(evbuf, len);
-	evbuffer_add(evbuf, data, len);
-}
-
-/* Marshaling for integers */
-void
-tag_marshal_int(struct evbuffer *evbuf, uint8_t tag, uint32_t integer)
-{
-	evbuffer_drain(_buf, EVBUFFER_LENGTH(_buf));
-	encode_int(_buf, integer);
-
-	evbuffer_add(evbuf, &tag, sizeof(tag));
-	encode_int(evbuf, EVBUFFER_LENGTH(_buf));
-	evbuffer_add_buffer(evbuf, _buf);
-}
-
-void
-tag_marshal_string(struct evbuffer *buf, uint8_t tag, char *string)
-{
-	tag_marshal(buf, tag, string, strlen(string));
-}
-
-void
-tag_marshal_timeval(struct evbuffer *evbuf, uint8_t tag, struct timeval *tv)
-{
-	evbuffer_drain(_buf, EVBUFFER_LENGTH(_buf));
-
-	encode_int(_buf, tv->tv_sec);
-	encode_int(_buf, tv->tv_usec);
-
-	tag_marshal(evbuf, tag, EVBUFFER_DATA(_buf),
-	    EVBUFFER_LENGTH(_buf));
-}
+/* prototypes */
+static void record_marshal(struct evbuffer *evbuf, struct record *record);
+static void addr_marshal(struct evbuffer *evbuf, struct addr *addr);
 
 void
 tag_marshal_record(struct evbuffer *evbuf, uint8_t tag, struct record *record)
 {
 	struct evbuffer *tmp = evbuffer_new();
-
-	record_marshal(tmp, record);
-	tag_marshal(evbuf, tag, EVBUFFER_DATA(tmp), EVBUFFER_LENGTH(tmp));
-	evbuffer_free(tmp);
+	if (tmp != NULL) {
+		record_marshal(tmp, record);
+		evtag_marshal_buffer(evbuf, tag, tmp);
+		evbuffer_free(tmp);
+	}
 }
 
 /* 
@@ -159,14 +82,14 @@ tag_marshal_record(struct evbuffer *evbuf, uint8_t tag, struct record *record)
  */
 
 #define MARSHAL(tag, what) do { \
-	tag_marshal(evbuf, tag, &(what), sizeof(what)); \
+	evtag_marshal(evbuf, tag, &(what), sizeof(what)); \
 } while (0)
 
-void
+static void
 addr_marshal(struct evbuffer *evbuf, struct addr *addr)
 {
-	tag_marshal_int(evbuf, ADDR_TYPE, addr->addr_type);
-	tag_marshal_int(evbuf, ADDR_BITS, addr->addr_bits);
+	evtag_marshal_int(evbuf, ADDR_TYPE, addr->addr_type);
+	evtag_marshal_int(evbuf, ADDR_BITS, addr->addr_bits);
 
 	switch (addr->addr_type) {
 	case ADDR_TYPE_ETH:
@@ -181,45 +104,41 @@ addr_marshal(struct evbuffer *evbuf, struct addr *addr)
 	}
 }
 
-/* 
- * Functions to un/marshal records.
- */
-
-void
+static void
 record_marshal(struct evbuffer *evbuf, struct record *record)
 {
 	struct evbuffer *addr = evbuffer_new();
 	struct hash *hash;
 
 	if (timerisset(&record->tv_start))
-		tag_marshal_timeval(evbuf, REC_TV_START, &record->tv_start);
+		evtag_marshal_timeval(evbuf, REC_TV_START, &record->tv_start);
 	if (timerisset(&record->tv_end))
-		tag_marshal_timeval(evbuf, REC_TV_END, &record->tv_end);
+		evtag_marshal_timeval(evbuf, REC_TV_END, &record->tv_end);
 
 	/* Encode an address */
-	evbuffer_drain(addr, EVBUFFER_LENGTH(addr));
 	addr_marshal(addr, &record->src);
-	tag_marshal(evbuf, REC_SRC, EVBUFFER_DATA(addr), EVBUFFER_LENGTH(addr));
+	evtag_marshal_buffer(evbuf, REC_SRC, addr);
+	evbuffer_drain(addr, evbuffer_get_length(addr));
 
-	evbuffer_drain(addr, EVBUFFER_LENGTH(addr));
 	addr_marshal(addr, &record->dst);
-	tag_marshal(evbuf, REC_DST, EVBUFFER_DATA(addr), EVBUFFER_LENGTH(addr));
+	evtag_marshal_buffer(evbuf, REC_DST, addr);
+	evbuffer_drain(addr, evbuffer_get_length(addr));
 
-	tag_marshal_int(evbuf, REC_SRC_PORT, record->src_port);
-	tag_marshal_int(evbuf, REC_DST_PORT, record->dst_port);
-	tag_marshal_int(evbuf, REC_PROTO, record->proto);
-	tag_marshal_int(evbuf, REC_STATE, record->state);
+	evtag_marshal_int(evbuf, REC_SRC_PORT, record->src_port);
+	evtag_marshal_int(evbuf, REC_DST_PORT, record->dst_port);
+	evtag_marshal_int(evbuf, REC_PROTO, record->proto);
+	evtag_marshal_int(evbuf, REC_STATE, record->state);
 
 	if (record->os_fp != NULL)
-		tag_marshal_string(evbuf, REC_OS_FP, record->os_fp);
+		evtag_marshal_string(evbuf, REC_OS_FP, record->os_fp);
 
 	TAILQ_FOREACH(hash, &record->hashes, next)
-	    tag_marshal(evbuf, REC_HASH, hash->digest, sizeof(hash->digest));
+	    evtag_marshal(evbuf, REC_HASH, hash->digest, sizeof(hash->digest));
 
 	if (record->bytes)
-		tag_marshal_int(evbuf, REC_BYTES, record->bytes);
+		evtag_marshal_int(evbuf, REC_BYTES, record->bytes);
 	if (record->flags)
-		tag_marshal_int(evbuf, REC_FLAGS, record->flags);
+		evtag_marshal_int(evbuf, REC_FLAGS, record->flags);
 
 	evbuffer_free(addr);
 }

@@ -63,8 +63,10 @@
 #include <err.h>
 #include <sha1.h>
 
-#include <event.h>
-#include <evdns.h>
+#include <event2/event.h>
+#include <event2/buffer.h>
+#include <event2/bufferevent.h>
+#include <event2/dns.h>
 
 #include "util.h"
 #include "smtp.h"
@@ -72,6 +74,8 @@
 #include "honeyd_overload.h"
 
 extern int debug;
+extern struct event_base *honeyd_base_ev;
+extern struct evdns_base *honeyd_base_evdns;
 
 #define DFPRINTF(x, y)	do { \
 	if (debug >= x) fprintf y; \
@@ -272,7 +276,7 @@ smtp_handle_helo(struct smtp_ta *ta, char *line)
 	domainname = strsep(&line, " ");
 	kv_replace(&ta->dictionary, "$srcname", domainname);
 
-	evdns_resolve_reverse(&sin->sin_addr, 0, smtp_handle_helo_cb, ta);
+	evdns_base_resolve_reverse(honeyd_base_evdns, &sin->sin_addr, 0, smtp_handle_helo_cb, ta);
 	ta->dns_pending = 1;
 
 	return (0);
@@ -757,9 +761,13 @@ smtp_write_email(struct smtp_ta *ta, int count)
 			kv_remove(&ta->dictionary, "data");
 		}
 
-		hash = smtp_hashed_store(log_datadir, 
-		    EVBUFFER_DATA(buffer), EVBUFFER_LENGTH(buffer));
-		evbuffer_drain(buffer, -1);
+		size_t blen; 
+		data = (char *)malloc(blen = evbuffer_get_length(buffer));
+		evbuffer_copyout(buffer, data, blen);
+
+		hash = smtp_hashed_store(log_datadir, data, blen);
+		free(data);
+		evbuffer_drain(buffer, blen);
 
 		evbuffer_add_printf(buffer, "\n%s\n", hash);
 		evbuffer_write(buffer, fd);
@@ -807,23 +815,29 @@ smtp_store(struct smtp_ta *ta, const char *dir)
 char *
 smtp_readline(struct bufferevent *bev)
 {
-	struct evbuffer *buffer = EVBUFFER_INPUT(bev);
-	char *data = EVBUFFER_DATA(buffer);
-	size_t len = EVBUFFER_LENGTH(buffer);
+	struct evbuffer *buffer = bufferevent_get_input(bev);
+	size_t len = evbuffer_get_length(buffer);
+	char *data;
 	char *line;
 	int i;
+
+	data = malloc(len);
+	evbuffer_copyout(buffer, data, len);
 
 	for (i = 0; i < len; i++) {
 		if (data[i] == '\r' || data[i] == '\n')
 			break;
 	}
 	
-	if (i == len)
+	if (i == len) {
+		free(data);
 		return (NULL);
+	}
 
 	if ((line = malloc(i + 1)) == NULL) {
 		fprintf(stderr, "%s: out of memory\n", __func__);
 		evbuffer_drain(buffer, i);
+		free(data);
 		return (NULL);
 	}
 
@@ -840,6 +854,7 @@ smtp_readline(struct bufferevent *bev)
 
 	evbuffer_drain(buffer, i + 1);
 
+	free(data);
 	return (line);
 }
 
@@ -941,10 +956,10 @@ smtp_ta_new(int fd, struct sockaddr *sa, socklen_t salen,
 
 	ta->state = EXPECT_HELO;
 	ta->fd = fd;
-	ta->bev = bufferevent_new(fd,
-	    smtp_readcb, smtp_writecb, smtp_errorcb, ta);
+	ta->bev = bufferevent_socket_new(honeyd_base_ev, fd, BEV_OPT_CLOSE_ON_FREE|BEV_OPT_THREADSAFE);
 	if (ta->bev == NULL)
 		goto error;
+	bufferevent_setcb(ta->bev, smtp_readcb, smtp_writecb, smtp_errorcb, ta);
 
 	/* Create our tiny dictionary */
 	name_from_addr(sa, salen, &ipname, &portname);
@@ -1042,7 +1057,7 @@ accept_socket(int fd, short what, void *arg)
 }
 
 void
-smtp_bind_socket(struct event *ev, u_short port)
+smtp_bind_socket(struct event **ev, u_short port)
 {
 	int fd;
 
@@ -1053,8 +1068,8 @@ smtp_bind_socket(struct event *ev, u_short port)
 		err(1, "%s: listen failed: %d", __func__, port);
 
 	/* Schedule the socket for accepting */
-	event_set(ev, fd, EV_READ | EV_PERSIST, accept_socket, NULL);
-	event_add(ev, NULL);
+	*ev = event_new(honeyd_base_ev, fd, EV_READ | EV_PERSIST, accept_socket, NULL);
+	event_add(*ev, NULL);
 
 	fprintf(stderr, 
 	    "Bound to port %d\n"

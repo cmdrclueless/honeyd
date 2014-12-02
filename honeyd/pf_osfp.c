@@ -85,7 +85,7 @@ pf_osfp_fingerprint_hdr(const struct ip_hdr *ip, const struct tcp_hdr *tcp)
 
 
 	cnt = (tcp->th_off << 2) - sizeof(*tcp);
-	optp = (caddr_t)tcp + sizeof(*tcp);
+	optp = (uint8_t *)((caddr_t)tcp + sizeof(*tcp));
 	for (; cnt > 0; cnt -= optlen, optp += optlen) {
 		if (*optp == TCP_OPT_EOL)
 			break;
@@ -460,7 +460,7 @@ pf_osfp_validate(void)
 		if (find.fp_mss == 0)
 			find.fp_mss = 128;
 		if (f->fp_flags & PF_OSFP_WSIZE_MSS)
-			find.fp_wsize *= find.fp_mss, 1;
+			find.fp_wsize *= find.fp_mss;
 		else if (f->fp_flags & PF_OSFP_WSIZE_MTU)
 			find.fp_wsize *= (find.fp_mss + 40);
 		else if (f->fp_flags & PF_OSFP_WSIZE_MOD)

@@ -33,6 +33,7 @@
 #ifndef _TEMPLATE_
 #define _TEMPLATE_
 
+#include <event2/buffer.h>
 #include <assert.h>
 
 struct dhcpclient_req;

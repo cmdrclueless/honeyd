@@ -54,7 +54,7 @@
 #undef timeout_pending
 #undef timeout_initialized
 
-#include <event.h>
+#include <event2/event.h>
 
 #include "honeyd.h"
 #include "udp.h"
@@ -88,7 +88,7 @@ cmd_udp_eread(int fd, short which, void *arg)
 	
 	honeyd_log_service(honeyd_servicefp, IP_PROTO_UDP, &con->conhdr, line);
 
-	event_add(&cmd->peread, NULL);
+	event_add(cmd->peread, NULL);
 }
 
 void

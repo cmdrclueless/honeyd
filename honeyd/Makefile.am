@@ -10,7 +10,7 @@ if COND_REGRESS
 endif
 SUBDIRS = . $(MAYBE_PYPCAP) $(MAYBE_PYDPKT) $(MAYBE_REGRESS)
 
-AUTOMAKE_OPTIONS = foreign no-dependencies
+AUTOMAKE_OPTIONS = foreign no-dependencies subdir-objects
 ACLOCAL_AMFLAGS  = -I m4
 
 ########################################################################
@@ -45,7 +45,7 @@ libhoneyd_la_LDFLAGS = -module -export-dynamic -avoid-version
 #	rm -f .libs/libtmp$@.*
 
 libhoneyddir = $(libdir)/honeyd
-libhoneyd_DATA = libhoneyd.so
+#libhoneyd_DATA = libhoneyd.so
 
 
 # Configuration files for Honeyd
@@ -140,7 +140,7 @@ CFLAGS	= -O2 -Wall -g \
 	-DHONEYD_PLUGINS="$(honeydplugins)" \
 	-DPATH_RRDTOOL="\"$(PATH_RRDTOOL)\""
 
-INCLUDES = -I$(top_srcdir)/@DNETCOMPAT@ -I$(top_srcdir)/compat \
+AM_CPPFLAGS = -I$(top_srcdir)/@DNETCOMPAT@ -I$(top_srcdir)/compat \
 	@PYTHONINC@ @EVENTINC@ @PCAPINC@ @DNETINC@ @ZINC@
 
 ########################################################################
@@ -240,8 +240,8 @@ EXTRA_DIST = $(man_MANS) $(WEBDIR_FILES) $(PYTHON_FILES)		  \
 
 install-data-local:
 	$(mkdir_p) "$(DESTDIR)$(honeyddatadir)"
-	(cd $(top_srcdir) && tar -cf - $(top_srcdir)/webserver) | \
-	(cd $(DESTDIR)$(honeyddatadir) && tar -xf -)
+	(cd $(srcdir) && tar -cf - -C $(srcdir) webserver) | \
+	(cd $(DESTDIR)$(honeyddatadir) && tar -xvf -)
 	find $(DESTDIR)$(honeyddatadir)/webserver -type f | xargs chmod a+r
 	find $(DESTDIR)$(honeyddatadir)/webserver -type d | xargs chmod a+xr
 
@@ -251,3 +251,27 @@ DISTCLEANFILES = *~
 LEX_OUTPUT_ROOT = lex.hyd
 LFLAGS  = -Phyd
 YFLAGS  = -d
+
+# From http://stackoverflow.com/questions/13948916/how-to-build-so-module-in-automake-and-a-libtool-using-project
+.PHONY: convenience-link clean-convenience-link
+
+convenience-link: $(lib_LTLIBRARIES)
+	  @for soname in `echo | $(EGREP) "^dlname=" $^ | $(SED) -e "s|^dlname='\(.*\)'|\1|"`; do  \
+	    echo "$$soname: creating convenience link from $(abs_builddir)/.libs to $(top_builddir)"; \
+	    rm -f $(top_builddir)/$$soname ; \
+	    test -e $(abs_builddir)/.libs/$$soname && \
+	    cd $(top_builddir) && \
+	    $(LN_S) $(abs_builddir)/.libs/$$soname $$soname || true;\
+	  done 
+
+clean-convenience-link:
+	  @for soname in `echo | $(EGREP) "^dlname=" $(lib_LTLIBRARIES) | $(SED) -e "s|^dlname='\(.*\)'|\1|"`; do  \
+	    echo "$$soname: cleaning convenience links"; \
+	    test -L $(top_builddir)/$$soname && rm -f $(top_builddir)/$$soname || true; \
+	  done 
+
+all-local:: convenience-link
+
+clean-local:: clean-convenience-link
+
+# end http://stackoverflow.com/questions/13948916/how-to-build-so-module-in-automake-and-a-libtool-using-project

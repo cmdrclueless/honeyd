@@ -67,7 +67,8 @@
 #undef timeout_pending
 #undef timeout_initialized
 
-#include <event.h>
+#include <event2/event.h>
+#include <event2/buffer.h>
 
 #include "honeyd.h"
 #include "tagging.h"
@@ -79,15 +80,14 @@
 #include "keycount.h"
 
 /* Prototypes */
-int
-make_socket(int (*f)(int, const struct sockaddr *, socklen_t), int type,
-    char *address, uint16_t port);
+int make_socket(int (*f)(int, const struct sockaddr *, socklen_t), int type, char *address, uint16_t port);
 
+struct event_base * honeyd_base_ev;
 extern int checkpoint_fd;
 extern struct evbuffer *checkpoint_evbuf;
 extern struct usertree users;
 
-static struct event ev_recv;
+static struct event *ev_recv;
 static int fd_recv;
 static struct evbuffer *evbuf_recv;
 static char *checkpoint_filename = NULL;
@@ -97,7 +97,7 @@ static void
 read_cb(int fd, short what, void *arg)
 {
 	static u_char buf[4096];
-	struct event *ev = arg;
+	struct event *ev = *((struct event **)arg);
 	struct addr src;
 	struct sockaddr_storage from;
 	socklen_t fromsz = sizeof(from);
@@ -118,7 +118,7 @@ read_cb(int fd, short what, void *arg)
 	syslog(LOG_INFO, "Received report from %s: %d",
 	    addr_ntoa(&src), nread);
 
-	evbuffer_drain(evbuf_recv, EVBUFFER_LENGTH(evbuf_recv));
+	evbuffer_drain(evbuf_recv, evbuffer_get_length(evbuf_recv));
 	evbuffer_add(evbuf_recv, buf, nread);
 
 	signature_process(evbuf_recv);
@@ -129,7 +129,6 @@ struct _unittest {
 	void (*cb)(void);
 } unittests[] = {
 	{ "histogram", histogram_test },
-	{ "tagging", tagging_test },
 	{ "stats", stats_test },
 	{ "analyze", analyze_test },
 	{ NULL, NULL}
@@ -181,8 +180,8 @@ setup_socket(char *address, int port)
 
 	syslog(LOG_NOTICE, "Listening on %s:%d", address, port);
 
-	event_set(&ev_recv, fd_recv, EV_READ, read_cb, &ev_recv);
-	event_add(&ev_recv, NULL);
+	ev_recv = event_new(honeyd_base_ev, fd_recv, EV_READ, read_cb, &ev_recv);
+	event_add(ev_recv, NULL);
 }
 
 void
@@ -226,7 +225,7 @@ main(int argc, char *argv[])
 		{"country_report", required_argument, &report_country, 1},
 		{0, 0, 0, 0}
 	};
-	struct event sigterm_ev, sigint_ev, sighup_ev;
+	struct event *sigterm_ev, *sigint_ev, *sighup_ev;
 	char *replay_filename = NULL;
 	char *address = "0.0.0.0";
 	char **orig_argv;
@@ -334,11 +333,11 @@ main(int argc, char *argv[])
 			err(1, "daemon");
 	}
 
-	event_init();
+	honeyd_base_ev = event_base_new();
 
 	count_init();
 
-	tagging_init();
+	evtag_init();
 	analyze_init();
 	timeseries_init();
 
@@ -379,14 +378,16 @@ main(int argc, char *argv[])
 
 	setup_socket(address, port);
 
-	signal_set(&sigint_ev, SIGINT, honeydstats_signal, NULL);
-	signal_add(&sigint_ev, NULL);
-	signal_set(&sigterm_ev, SIGTERM, honeydstats_signal, NULL);
-	signal_add(&sigterm_ev, NULL);
-	signal_set(&sighup_ev, SIGHUP, honeydstats_sighup, NULL);
-	signal_add(&sighup_ev, NULL);
+#define __init_signal(b,e,x,f) \
+	(e) = evsignal_new((b),(x),(f),NULL); \
+	evsignal_add((e), NULL)
 
-	event_dispatch();
+	__init_signal(honeyd_base_ev, sigint_ev, SIGINT, honeydstats_signal);
+	__init_signal(honeyd_base_ev, sigterm_ev, SIGTERM, honeydstats_signal);
+	__init_signal(honeyd_base_ev, sighup_ev, SIGHUP, honeydstats_signal);
+
+
+	event_base_dispatch(honeyd_base_ev);
 
 	syslog(LOG_ERR, "Kqueue does not recognize bpf filedescriptor.");
 
