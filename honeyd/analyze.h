@@ -55,7 +55,6 @@ struct record;
 void analyze_init(void);
 void analyze_set_checkpoint_doreplay(int);
 void analyze_record(const struct record *record);
-void analyze_report_cb(int, short, void *);
 
 void analyze_spammer_enter(const struct addr *src, uint32_t bytes);
 void analyze_os_enter(const struct addr *addr, const char *osfp);

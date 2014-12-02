@@ -380,7 +380,6 @@ honeyd_rrd_cb(evutil_socket_t fd, short what, void *arg)
 {
 	static int count;
 	char line[1024];
-	struct event *ev = *((struct event **)arg);
 	struct timeval tv;
 
 	snprintf(line, sizeof(line), "%f:%f",
@@ -391,7 +390,7 @@ honeyd_rrd_cb(evutil_socket_t fd, short what, void *arg)
 
 	timerclear(&tv);
 	tv.tv_sec = 60;
-	evtimer_add(ev, &tv);
+	evtimer_add(honeyd_rrd_ev, &tv);
 
 	/* Create a graph every five minutes */
 	if (count++ % 5 == 0) {
@@ -446,8 +445,8 @@ honeyd_rrd_start(const char *rrdtool_path)
 	rrdtool_db_commit(honeyd_traffic_db);
 
 	/* Start the periodic traffic update timer */
-	honeyd_rrd_ev = evtimer_new(honeyd_base_ev, honeyd_rrd_cb, &honeyd_rrd_ev);
-	honeyd_rrd_cb(-1, EV_TIMEOUT, &honeyd_rrd_ev);
+	honeyd_rrd_ev = evtimer_new(honeyd_base_ev, honeyd_rrd_cb, NULL);
+	honeyd_rrd_cb(-1, EV_TIMEOUT, NULL);
 }
 
 /*

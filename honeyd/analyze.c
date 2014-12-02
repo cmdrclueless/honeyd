@@ -60,9 +60,10 @@
 #include "analyze.h"
 #include "filter.h"
 
-extern struct event_base *honeyd_base_ev;
+static void analyze_report_cb(evutil_socket_t, short, void *);
 
-struct evdns_base *honeyd_base_evdns;
+extern struct event_base *honeyd_base_ev;
+static struct evdns_base *honeyd_base_evdns;
 
 char *os_report_file = NULL;
 char *port_report_file = NULL;
@@ -274,7 +275,7 @@ analyze_init(void)
 {
 	struct timeval tv;
 
-	ev_analyze = evtimer_new(honeyd_base_ev, analyze_report_cb, &ev_analyze);
+	ev_analyze = evtimer_new(honeyd_base_ev, analyze_report_cb, NULL);
 
 	timerclear(&tv);
 	tv.tv_sec = ANALYZE_REPORT_INTERVAL; 
@@ -789,15 +790,14 @@ analyze_print_report()
 	analyze_print_country_report();
 }
 
-void
-analyze_report_cb(int fd, short what, void *arg)
+static void
+analyze_report_cb(evutil_socket_t fd, short what, void *arg)
 {
-	struct event *ev = *((struct event **)arg);
 	struct timeval tv;
 
 	timerclear(&tv);
 	tv.tv_sec = ANALYZE_REPORT_INTERVAL;
-	evtimer_add(ev, &tv);
+	evtimer_add(ev_analyze, &tv);
 
 	analyze_print_report();
 }

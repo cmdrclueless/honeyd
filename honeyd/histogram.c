@@ -70,22 +70,21 @@ static struct timeval tv_periodic;
 static void
 count_time_evcb(int fd, short what, void *arg)
 {
-	struct event *ev = *((struct event **)arg);
 	struct timeval tv;
 
 	gettimeofday(&tv_periodic, NULL);
 
 	timerclear(&tv);
 	tv.tv_sec = 1;
-	evtimer_add(ev, &tv);
+	evtimer_add(count_time_ev, &tv);
 }
 
 void
 count_init(void)
 {
 	/* Start a timer that keeps track of the current system time */
-	count_time_ev = evtimer_new(honeyd_base_ev, count_time_evcb, &count_time_ev);
-	count_time_evcb(-1, EV_TIMEOUT, &count_time_ev);
+	count_time_ev = evtimer_new(honeyd_base_ev, count_time_evcb, NULL);
+	count_time_evcb(-1, EV_TIMEOUT, NULL);
 }
 
 void

@@ -97,14 +97,13 @@ static void
 read_cb(int fd, short what, void *arg)
 {
 	static u_char buf[4096];
-	struct event *ev = *((struct event **)arg);
 	struct addr src;
 	struct sockaddr_storage from;
 	socklen_t fromsz = sizeof(from);
 	int nread;
 
 	/* Reschedule the event */
-	event_add(ev, NULL);
+	event_add(ev_recv, NULL);
 
 	nread = recvfrom(fd, buf, sizeof(buf), MSG_WAITALL,
 	    (struct sockaddr *)&from, &fromsz);
@@ -180,7 +179,7 @@ setup_socket(char *address, int port)
 
 	syslog(LOG_NOTICE, "Listening on %s:%d", address, port);
 
-	ev_recv = event_new(honeyd_base_ev, fd_recv, EV_READ, read_cb, &ev_recv);
+	ev_recv = event_new(honeyd_base_ev, fd_recv, EV_READ, read_cb, NULL);
 	event_add(ev_recv, NULL);
 }
 
