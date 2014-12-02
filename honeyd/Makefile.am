@@ -45,7 +45,7 @@ libhoneyd_la_LDFLAGS = -module -export-dynamic -avoid-version
 #	rm -f .libs/libtmp$@.*
 
 libhoneyddir = $(libdir)/honeyd
-libhoneyd_DATA = libhoneyd.so
+#libhoneyd_DATA = libhoneyd.so
 
 
 # Configuration files for Honeyd
@@ -251,3 +251,27 @@ DISTCLEANFILES = *~
 LEX_OUTPUT_ROOT = lex.hyd
 LFLAGS  = -Phyd
 YFLAGS  = -d
+
+# From http://stackoverflow.com/questions/13948916/how-to-build-so-module-in-automake-and-a-libtool-using-project
+.PHONY: convenience-link clean-convenience-link
+
+convenience-link: $(lib_LTLIBRARIES)
+	  @for soname in `echo | $(EGREP) "^dlname=" $^ | $(SED) -e "s|^dlname='\(.*\)'|\1|"`; do  \
+	    echo "$$soname: creating convenience link from $(abs_builddir)/.libs to $(top_builddir)"; \
+	    rm -f $(top_builddir)/$$soname ; \
+	    test -e $(abs_builddir)/.libs/$$soname && \
+	    cd $(top_builddir) && \
+	    $(LN_S) $(abs_builddir)/.libs/$$soname $$soname || true;\
+	  done 
+
+clean-convenience-link:
+	  @for soname in `echo | $(EGREP) "^dlname=" $(lib_LTLIBRARIES) | $(SED) -e "s|^dlname='\(.*\)'|\1|"`; do  \
+	    echo "$$soname: cleaning convenience links"; \
+	    test -L $(top_builddir)/$$soname && rm -f $(top_builddir)/$$soname || true; \
+	  done 
+
+all-local:: convenience-link
+
+clean-local:: clean-convenience-link
+
+# end http://stackoverflow.com/questions/13948916/how-to-build-so-module-in-automake-and-a-libtool-using-project
