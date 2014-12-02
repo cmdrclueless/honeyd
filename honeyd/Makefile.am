@@ -240,8 +240,8 @@ EXTRA_DIST = $(man_MANS) $(WEBDIR_FILES) $(PYTHON_FILES)		  \
 
 install-data-local:
 	$(mkdir_p) "$(DESTDIR)$(honeyddatadir)"
-	(cd $(top_srcdir) && tar -cf - $(top_srcdir)/webserver) | \
-	(cd $(DESTDIR)$(honeyddatadir) && tar -xf -)
+	(cd $(srcdir) && tar -cf - -C $(srcdir) webserver) | \
+	(cd $(DESTDIR)$(honeyddatadir) && tar -xvf -)
 	find $(DESTDIR)$(honeyddatadir)/webserver -type f | xargs chmod a+r
 	find $(DESTDIR)$(honeyddatadir)/webserver -type d | xargs chmod a+xr
 
