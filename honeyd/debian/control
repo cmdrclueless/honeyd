@@ -2,7 +2,9 @@ Source: honeyd
 Section: unknown
 Priority: extra
 Maintainer: Brian Weaver <cmdrclueless@gmail.com>
-Build-Depends: debhelper (>= 8.0.0)
+Build-Depends: debhelper (>= 8.0.0), autoconf, automake, libc6-dev, libdumbnet-dev,
+	perl-base, flex, make, bison, gcc, binutils, coreutils, diffutils, libreadline6-dev,
+	libpcap-dev, zlib1g-dev, libevent-dev, dh-autoreconf
 Standards-Version: 3.9.3
 Homepage: https://github.com/cmdrclueless/honeyd
 #Vcs-Git: git://git.debian.org/collab-maint/honeyd.git
@@ -10,7 +12,7 @@ Homepage: https://github.com/cmdrclueless/honeyd
 
 Package: honeyd
 Architecture: any
-Depends: ${shlibs:Depends}, ${misc:Depends}
+Depends: ${shlibs:Depends}, ${misc:Depends}, libdumbnet, libreadline6, libpcap, zlib1g, libevent
 Description: <insert up to 60 chars description>
  <insert long description, indented with spaces>
 
