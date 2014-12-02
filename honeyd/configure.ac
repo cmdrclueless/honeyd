@@ -1,5 +1,5 @@
 # Process this file with autoconf to produce a configure script.
-AC_INIT([honeyd],[1.5c])
+AC_INIT([honeyd],[1.6a])
 
 AC_CONFIG_SRCDIR([honeyd])
 AC_CONFIG_SRCDIR(honeyd.c)
