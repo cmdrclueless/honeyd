@@ -49,7 +49,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
-#include <dumbnet.h>
+#include <dnet.h>
 
 #undef timeout_pending
 #undef timeout_initialized
