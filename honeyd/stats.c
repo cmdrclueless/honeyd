@@ -181,7 +181,6 @@ stats_compress(struct evbuffer *evbuf)
 	static z_stream stream;
 	static u_char buffer[2048];
 	int status;
-	void *data;
 	
 	/* Initialize buffer and compressor */
 	if (tmp == NULL) {
@@ -190,9 +189,8 @@ stats_compress(struct evbuffer *evbuf)
 	}
 	deflateReset(&stream);
 
-	data = malloc(stream.avail_in = evbuffer_get_length(evbuf));
-	evbuffer_copyout(evbuf, data, stream.avail_in);
-	stream.next_in = (Bytef *)data;
+	stream.next_in = evbuffer_pullup(evbuf, -1);
+	stream.avail_in= evbuffer_get_length(evbuf);
 
 	do {
 		stream.next_out = buffer;
@@ -206,13 +204,10 @@ stats_compress(struct evbuffer *evbuf)
 			evbuffer_add(tmp, buffer, sizeof(buffer) - stream.avail_out);
 			break;
 		default:
-			free(data);
 			errx(1, "%s: deflate failed with %d", __func__, status);
 			/* NOTREACHED */
 		}
 	} while (stream.avail_out == 0);
-
-	free(data);
 
 	evbuffer_drain(evbuf, evbuffer_get_length(evbuf));
 	evbuffer_add_buffer(evbuf, tmp);
@@ -225,7 +220,6 @@ stats_decompress(struct evbuffer *evbuf)
 	static z_stream stream;
 	static u_char buffer[2048];
 	int status, done = 0;
-	void *data;
 	
 	/* Initialize buffer and compressor */
 	if (tmp == NULL) {
@@ -234,9 +228,8 @@ stats_decompress(struct evbuffer *evbuf)
 	}
 	inflateReset(&stream);
 
-	data = malloc(stream.avail_in = evbuffer_get_length(evbuf));
-	evbuffer_copyout(evbuf, data, stream.avail_in);
-	stream.next_in = (Bytef *)data;
+	stream.avail_in = evbuffer_get_length(evbuf);
+	stream.next_in  = evbuffer_pullup(evbuf, -1);
 
 	do {
 		stream.next_out = buffer;
@@ -255,13 +248,10 @@ stats_decompress(struct evbuffer *evbuf)
 			break;
 
 		default:
-			free(data);
 			warnx("%s: inflate failed with %d", __func__, status);
 			return (-1);
 		}
 	} while (!done);
-
-	free(data);
 
 	evbuffer_drain(evbuf, evbuffer_get_length(evbuf));
 	evbuffer_add_buffer(evbuf, tmp);
@@ -286,8 +276,8 @@ stats_shingle_data(struct stats *stats)
 		u_char *data;
 		int i;
 
-		data = (u_char *)malloc(len = evbuffer_get_length(stats->evbuf));
-		evbuffer_copyout(stats->evbuf, (void *)data, len);
+		len  = evbuffer_get_length(stats->evbuf);
+		data = evbuffer_pullup(stats->evbuf, -1);
 
 		/* So, we are wasting some time here, but that's alright */
 		for (i = SHINGLE_MIN; i < len - 4; i++) {
@@ -301,13 +291,11 @@ stats_shingle_data(struct stats *stats)
 
 		/* If we run out of data, then we just return */
 		if (hash && i < SHINGLE_MAX) {
-			free(data);
 			return;
 		}
 
 		record_add_hash(&stats->hashes, data, i);
 		evbuffer_drain(stats->evbuf, i);
-		free(data);
 
 		stats_activate(stats);
 	}
@@ -454,16 +442,14 @@ stats_package_measurement()
 	stats_compress(sc.evbuf_measure);
 
 	/* Sign the data - at this point, we could use compression */
-	data = malloc(len = evbuffer_get_length(sc.evbuf_measure));
-	evbuffer_copyout(sc.evbuf_measure, data, len);
+	len = evbuffer_get_length(sc.evbuf_measure);
+	data = evbuffer_pullup(sc.evbuf_measure, -1);
 	hmac_sign(&sc.hmac, digest, sizeof(digest), data, len);
 
 	/* Create the signed buffer */
 	evtag_marshal_string(evbuf, SIG_NAME, sc.user_name);
 	evtag_marshal(evbuf, SIG_DIGEST, digest, sizeof(digest));
 	evtag_marshal(evbuf, SIG_COMPRESSED_DATA, data, len);
-
-	free(data);
 
 	stats_prepare_send(evbuf);
 }

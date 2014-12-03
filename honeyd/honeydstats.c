@@ -277,14 +277,7 @@ signature_process(struct evbuffer *evbuf)
 		else {
 			evbuffer_drain(checkpoint_evbuf, evbuffer_get_length(checkpoint_evbuf));
 		}
-
-		size_t len = evbuffer_get_length(evbuf);
-		void * data = malloc(len);
-		if (data) {
-			evbuffer_copyout(evbuf, data, len);
-			evbuffer_add(checkpoint_evbuf, data, len);
-			free(data);
-		}
+		evbuffer_add(checkpoint_evbuf, evbuffer_pullup(evbuf, -1), evbuffer_get_length(evbuf));
 	}
 
 	if (evtag_unmarshal_string(evbuf, SIG_NAME, &username) == -1)
@@ -306,14 +299,12 @@ signature_process(struct evbuffer *evbuf)
 
 	/* Validate signature */
 	size_t len = evbuffer_get_length(tmp);
-	void * data = malloc(len);
-	evbuffer_copyout(tmp, data, len);
+	char * data= evbuffer_pullup(tmp, -1);
 	if (!hmac_verify(&user->hmac, digest, sizeof(digest), data, len)) {
 		free(data);
 		syslog(LOG_WARNING, "Bad signature on data from user '%s'", username);
 		goto out;
 	}
-	free(data);
 
 	switch(tag) {
 	case SIG_COMPRESSED_DATA:
@@ -349,12 +340,7 @@ signature_length(struct evbuffer *evbuf)
 	uint32_t length, tlen;
 	struct evbuffer *tmp = evbuffer_new();
 
-	size_t len = evbuffer_get_length(evbuf);
-	void * data = malloc(len);
-	evbuffer_copyout(evbuf, data, len);
-
-	evbuffer_add(tmp, data, len);
-	free(data);
+	evbuffer_add(tmp, evbuffer_pullup(evbuf,-1), evbuffer_get_length(evbuf));
 
 	/* name */
 	if (evtag_peek_length(tmp, &tlen) == -1 || evbuffer_get_length(tmp) < tlen) {

@@ -93,7 +93,6 @@ rrdtool_evb_readcb(struct bufferevent *bev, void *parameter)
 	char * data = (char *)malloc(end.pos + 1);
 	evbuffer_copyout(input, data, end.pos);
 	data[end.pos] = '\0';
-
 	rrdtool_command_done(req, data);
 	free(data);
 	

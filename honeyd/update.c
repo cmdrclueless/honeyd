@@ -195,7 +195,7 @@ update_errorcb(struct bufferevent *bev, short what, void *parameter)
 	if (strcmp(code, "200") != 0)
 		goto error;
 	
-	free(data);
+	data = (free(data), NULL);
 
 	end = evbuffer_search(input, "\r\n\r\n", 4, NULL);
 	evbuffer_drain(input, end.pos + 4);
@@ -209,12 +209,15 @@ update_errorcb(struct bufferevent *bev, short what, void *parameter)
 	data[len] = '\0';
 	update_parse_information(data, len);
 
-	free(data);
+	data = (free(data), NULL);
 
 	bufferevent_free(bev);
 	return;
 
  error:
+	if (data)
+		free(data);
+
 	syslog(LOG_WARNING, "%s: failed to get security update information", __func__);
 	bufferevent_free(bev);
 	return;
