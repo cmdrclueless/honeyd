@@ -30,13 +30,12 @@
  * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  */
 
-#include <sys/param.h>
-#include <sys/types.h>
-
 #ifdef HAVE_CONFIG_H
 #include "config.h"
 #endif
 
+#include <sys/param.h>
+#include <sys/types.h>
 #ifdef HAVE_SYS_TIME_H
 #include <sys/time.h>
 #endif
@@ -78,6 +77,7 @@
 #include "honeydstats.h"
 #include "analyze.h"
 #include "keycount.h"
+#include "strcompat.h"
 
 /* Prototypes */
 int make_socket(int (*f)(int, const struct sockaddr *, socklen_t), int type, char *address, uint16_t port);

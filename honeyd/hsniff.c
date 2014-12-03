@@ -30,13 +30,12 @@
  * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  */
 
-#include <sys/param.h>
-#include <sys/types.h>
-
 #ifdef HAVE_CONFIG_H
 #include "config.h"
 #endif
 
+#include <sys/param.h>
+#include <sys/types.h>
 #ifdef HAVE_SYS_TIME_H
 #include <sys/time.h>
 #endif
@@ -64,6 +63,7 @@
 #include <unistd.h>
 #include <getopt.h>
 #include <dnet.h>
+#include <grp.h>
 
 #undef timeout_pending
 #undef timeout_initialized
@@ -78,6 +78,7 @@
 #include "tagging.h"
 #include "stats.h"
 #include "debug.h"
+#include "strcompat.h"
 
 struct event_base * honeyd_base_ev;
 int			honeyd_debug;

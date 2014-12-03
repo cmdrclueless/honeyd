@@ -30,18 +30,16 @@
  * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  */
 %{
-#include <sys/types.h>
 
 #include "config.h"
 
+#include <sys/types.h>
 #ifdef HAVE_SYS_TIME_H
 #include <sys/time.h>
 #endif
 #include <sys/tree.h>
 #include <sys/queue.h>
 
-#define _XOPEN_SOURCE /* glibc2 is stupid and needs this */
-#define _GNU_SOURCE
 #include <stdio.h>
 #include <stdlib.h>
 #include <err.h>
@@ -53,7 +51,7 @@
 #include <pcap.h>
 #include <dnet.h>
 
-#include <event.h>
+#include <event2/event.h>
 
 #include "honeyd.h"
 #include "personality.h"
@@ -68,6 +66,7 @@
 #include "dhcpclient.h"
 #include "subsystem.h"
 #include "util.h"
+#include "strcompat.h"
 #ifdef HAVE_PYTHON
 #include "pyextend.h"
 #endif
@@ -942,7 +941,12 @@ ui : LIST TEMPLATE
 
 		trace_inspect($3, evbuf);
 
-		yyprintf("%s", EVBUFFER_DATA(evbuf));
+		size_t len = evbuffer_get_length(evbuf);
+		char *data = malloc(len);
+		evbuffer_copyout(evbuf, data, len);
+
+		yyprintf("%s", data);
+		free(data);
 
 		evbuffer_free(evbuf);
 	} else {

@@ -30,13 +30,11 @@
  * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  */
 
-#include <sys/types.h>
-#include <sys/param.h>
-
 #ifdef HAVE_CONFIG_H
 #include "config.h"
 #endif
-
+#include <sys/types.h>
+#include <sys/param.h>
 #include <sys/ioctl.h>
 #include <sys/tree.h>
 #include <sys/queue.h>
@@ -65,6 +63,7 @@
 #include "network.h"
 #include "router.h"			/* for network compare */
 #include "debug.h"
+#include "strcompat.h"
 
 /* Prototypes */
 int pcap_dloff(pcap_t *);

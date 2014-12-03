@@ -8,6 +8,8 @@ AC_CONFIG_MACRO_DIR([m4])
 AC_CANONICAL_TARGET
 AC_CANONICAL_HOST
 
+AC_GNU_SOURCE
+
 AM_INIT_AUTOMAKE
 dnl AM_CONFIG_HEADER(config.h:config.in)
 AM_CONFIG_HEADER(config.h)
@@ -62,24 +64,7 @@ AH_TEMPLATE([DL_NEED_UNDERSCORE])
 AH_TEMPLATE([NODLOPEN])
 AH_TEMPLATE([DLOPENLIBC])
 
-AH_BOTTOM([
-/* Prototypes for missing functions */
-#ifndef HAVE_STRLCPY
-size_t	 strlcpy(char *, const char *, size_t);
-#endif
-
-#ifndef HAVE_STRLCAT
-size_t	 strlcat(char *, const char *, size_t);
-#endif
-
-#ifndef HAVE_STRSEP
-char	*strsep(char **, const char *);
-#endif
-
-#ifndef HAVE_DAEMON
-int	daemon(int, int);
-#endif
-])
+AC_DEFINE(_XOPEN_SOURCE, 700, [Enable XOPEN source functions])
 
 dnl Initialize prefix.
 if test "$prefix" = "NONE"; then

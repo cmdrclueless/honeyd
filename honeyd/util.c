@@ -59,20 +59,19 @@
  * OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include <sys/types.h>
-#include <sys/param.h>
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
 #endif
 
+#include <sys/types.h>
+#include <sys/param.h>
 #include <sys/queue.h>
 #include <sys/tree.h>
 #ifdef HAVE_SYS_TIME_H
 #include <sys/time.h>
 #endif
 
-#define _GNU_SOURCE
 #include <err.h>
 #include <errno.h>
 #include <stdio.h>
@@ -90,6 +89,7 @@
 
 #include "honeyd.h"
 #include "util.h"
+#include "strcompat.h"
 
 int trace_on;		/* determines if we trace file descriptor calls */
 

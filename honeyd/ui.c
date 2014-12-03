@@ -30,12 +30,11 @@
  * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  */
 
-#include <sys/types.h>
-
 #ifdef HAVE_CONFIG_H
 #include "config.h"
 #endif
 
+#include <sys/types.h>
 #include <sys/queue.h>
 #ifdef HAVE_SYS_TIME_H
 #include <sys/time.h>
@@ -52,8 +51,6 @@
 #include <syslog.h>
 #include <string.h>
 
-#include "config.h"
-
 #include <event2/event.h>
 #include <event2/buffer.h>
 #include <dnet.h>
@@ -63,6 +60,7 @@
 #ifdef HAVE_PYTHON
 #include "pyextend.h"
 #endif
+#include "strcompat.h"
 
 extern struct event_base *honeyd_base_ev; /* allocated in honeyd.c */
 

@@ -16,12 +16,10 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <sys/types.h>
-
 #ifdef HAVE_CONFIG_H
 #include "config.h"
 #endif
-
+#include <sys/types.h>
 #include <ctype.h>
 #include <err.h>
 #include <errno.h>
@@ -33,6 +31,7 @@
 
 #include "pfvar.h"
 #include "util.h"
+#include "strcompat.h"
 /* #include "pfctl_parser.h" */
 
 #define FAKE_PF_KERNEL

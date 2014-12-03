@@ -30,13 +30,13 @@
  * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  */
 
-#include <sys/param.h>
-#include <sys/types.h>
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
 #endif
 
+#include <sys/param.h>
+#include <sys/types.h>
 #ifdef HAVE_SYS_TIME_H
 #include <sys/time.h>
 #endif
@@ -101,6 +101,7 @@
 #include "histogram.h"
 #include "update.h"
 #include "util.h"
+#include "strcompat.h"
 
 #ifdef HAVE_PYTHON
 #include <Python.h>

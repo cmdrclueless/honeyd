@@ -30,12 +30,12 @@
  * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  */
 
-#include <sys/types.h>
-#include <sys/param.h>
-
 #ifdef HAVE_CONFIG_H
 #include "config.h"
 #endif
+
+#include <sys/types.h>
+#include <sys/param.h>
 
 #include <sys/stat.h>
 #include <sys/queue.h>
@@ -59,6 +59,7 @@
 #include "keycount.h"
 #include "analyze.h"
 #include "filter.h"
+#include "strcompat.h"
 
 static void analyze_report_cb(evutil_socket_t, short, void *);
 

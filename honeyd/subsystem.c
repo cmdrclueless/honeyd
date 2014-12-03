@@ -30,13 +30,10 @@
  * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  */
 
+#include "config.h"
+
 #include <sys/param.h>
 #include <sys/types.h>
-
-#ifdef HAVE_CONFIG_H
-#include "config.h"
-#endif
-
 #ifdef HAVE_SYS_TIME_H
 #include <sys/time.h>
 #endif
@@ -64,6 +61,7 @@
 #include "subsystem.h"
 #include "util.h"
 #include "fdpass.h"
+#include "strcompat.h"
 
 ssize_t atomicio(ssize_t (*)(), int, void *, size_t);
 

@@ -30,11 +30,10 @@
  * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  */
 
-#include <sys/param.h>
-#include <sys/types.h>
-
 #include "config.h"
 
+#include <sys/param.h>
+#include <sys/types.h>
 #ifdef HAVE_SYS_TIME_H
 #include <sys/time.h>
 #endif
@@ -64,6 +63,7 @@
 #include "xprobe_assoc.h"
 #include "template.h"
 #include "debug.h"
+#include "strcompat.h"
 
 /* ET - Moved SPLAY_HEAD to personality.h so xprobe_assoc.c could use it. */
 int npersons;
@@ -407,13 +407,12 @@ get_next_isn(struct template *tmpl, const struct personality *person)
 void
 personality_time(struct template *tmpl, struct timeval *diff)
 {
-	uint32_t ms, old_ms;
+	uint32_t ms;
 
 	timersub(&tv_periodic, &tmpl->tv_real, diff);
 	tmpl->tv_real = tv_periodic;
 
-	old_ms = ms = diff->tv_sec * 10000 + (diff->tv_usec / 100);
-	ms *= tmpl->drift;
+	ms = (diff->tv_sec * 10000 + (diff->tv_usec / 100)) * tmpl->drift;
 
 	diff->tv_sec = ms / 10000;
 	diff->tv_usec = (ms % 10000) * 100;
@@ -493,7 +492,6 @@ tcp_personality_seq(struct template *tmpl, struct personality *person)
 {
 	struct timeval tmp;
 	extern rand_t *honeyd_rand;
-	int slowhz;
 
 	tmpl->seqcalls++;
 
@@ -511,7 +509,8 @@ tcp_personality_seq(struct template *tmpl, struct personality *person)
 		return (tmpl->seq);
 	}
 
-	slowhz = tcp_personality_time(tmpl, &tmp);
+	/*int slowhz = tcp_personality_time(tmpl, &tmp);*/
+	tcp_personality_time(tmpl, &tmp);
 
 	/* 
 	 * This is where new ISNs are generated.  The latest ISN is
@@ -1630,7 +1629,7 @@ get_fprint(FILE * fp_in)
 }
 
 /* !!!DEBUG FUNCTION!!! */
-
+#if 0
 static void
 print_xprobe_struct(struct xp_fingerprint *pers)
 {
@@ -1691,6 +1690,7 @@ print_xprobe_struct(struct xp_fingerprint *pers)
 	printf ("icmp_unreach_echoed_3bit_flags:    %d\n",
             pers->flags.icmp_unreach_echoed_3bit_flags);
 }
+#endif /* 0 */
 
 void
 print_perstree(void)

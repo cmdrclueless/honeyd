@@ -30,10 +30,10 @@
  * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  */
 
-#include <sys/types.h>
-#include <sys/param.h>
 
 #include "config.h"
+#include <sys/types.h>
+#include <sys/param.h>
 #ifdef HAVE_SYS_TIME_H
 #include <sys/time.h>
 #endif
@@ -76,6 +76,7 @@
 #include "dhcpclient.h"
 #include "util.h"
 #include "log.h"
+#include "strcompat.h"
 
 /* Tailq that holds all subsystems */
 struct subsystemqueue subsystems;

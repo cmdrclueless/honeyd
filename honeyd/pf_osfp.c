@@ -17,13 +17,12 @@
  *
  */
 
-#include <sys/param.h>
-#include <sys/types.h>
-
 #ifdef HAVE_CONFIG_H
 #include "config.h"
 #endif
 
+#include <sys/param.h>
+#include <sys/types.h>
 #include <dnet.h>
 
 #include "pfvar.h"
@@ -33,6 +32,7 @@
 # include <stdio.h>
 # include <stdlib.h>
 # include <string.h>
+# include "strcompat.h"
 
 #ifndef NTOHS
 #define	NTOHS(x)	(x) = ntohs((u_int16_t)(x))

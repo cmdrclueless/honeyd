@@ -30,12 +30,12 @@
  * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  */
 
-#include <sys/types.h>
-#include <sys/param.h>
-
 #ifdef HAVE_CONFIG_H
 #include "config.h"
 #endif
+
+#include <sys/types.h>
+#include <sys/param.h>
 
 #include <sys/socket.h>
 #include <sys/queue.h>
@@ -61,6 +61,7 @@
 #include <dnet.h>
 
 #include "rrdtool.h"
+#include "strcompat.h"
 
 extern struct event_base *honeyd_base_ev;
 extern rand_t *honeyd_rand;

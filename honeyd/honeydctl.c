@@ -55,6 +55,7 @@
  * SUCH DAMAGE.
  */
 
+#include "config.h"
 #include <sys/types.h>
 
 #include <sys/socket.h>
@@ -62,9 +63,6 @@
 #include <arpa/inet.h>
 #include <sys/un.h>
 #include <netdb.h>
-
-#include "config.h"
-
 #include <sys/time.h>
 #include <err.h>
 #include <errno.h>
@@ -83,6 +81,8 @@
 #include <readline/readline.h>
 #include <readline/history.h>
 #endif
+
+#include "strcompat.h"
 
 #if !defined(HAVE_LIBEDIT) && !defined(HAVE_LIBREADLINE)
 #error "Need either libedit or libreadline"
@@ -240,7 +240,7 @@ main(int argc, char **argv)
 {
 	struct sockaddr *sock;
 	struct sockaddr_un ifsun;
-	int fd, len, verbose, save_errno;
+	int fd, len, save_errno;
 	unsigned TimeoutVal;
 	struct sigaction act, oact;
 	char *sockname = HONEYD_SOCK;
@@ -252,18 +252,14 @@ main(int argc, char **argv)
 	const char *l;
 	int ch;
 
-	verbose = 0;
 	TimeoutVal = 2;
 
-	while ((ch = getopt(argc, argv, "t:v")) != -1) {
+	while ((ch = getopt(argc, argv, "t:")) != -1) {
 		switch (ch) {
 		case 't':
 			TimeoutVal = (unsigned)atoi(optarg);
 			break;
     
-		case 'v':
-			verbose = REC_VERBOSE;
-			break;
 		default:
 			usage();
 		}

@@ -29,14 +29,12 @@
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  */
-
-#include <sys/types.h>
-#include <sys/param.h>
-
 #ifdef HAVE_CONFIG_H
 #include "config.h"
 #endif
 
+#include <sys/types.h>
+#include <sys/param.h>
 #include <sys/stat.h>
 #include <sys/tree.h>
 #include <sys/queue.h>
@@ -47,7 +45,6 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <signal.h>
-#define _GNU_SOURCE
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -72,6 +69,7 @@
 #include "pyextend.h"
 #include "honeyd_overload.h"
 #include "util.h"
+#include "strcompat.h"
 
 ssize_t atomicio(ssize_t (*)(), int, void *, size_t);
 

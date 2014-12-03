@@ -30,11 +30,10 @@
  * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  */
 
-#include <sys/param.h>
-#include <sys/types.h>
-
 #include "config.h"
 
+#include <sys/param.h>
+#include <sys/types.h>
 #ifdef HAVE_SYS_TIME_H
 #include <sys/time.h>
 #endif
@@ -63,6 +62,7 @@
 #include "honeyd.h"
 #include "osfp.h"
 #include "log.h"
+#include "strcompat.h"
 
 static char *
 honeyd_logtuple(const struct tuple *hdr)
