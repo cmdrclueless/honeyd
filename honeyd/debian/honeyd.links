@@ -1,0 +1,6 @@
+usr/share/honeyd/webserver etc/honeyd/webserver
+usr/share/honeyd/nmap.prints etc/honeyd/nmap.prints
+usr/share/honeyd/config.sample etc/honeyd/config.sample
+usr/share/honeyd/nmap.assoc etc/honeyd/nmap.assoc
+usr/share/honeyd/xprobe2.conf etc/honeyd/xprobe2.conf
+usr/share/honeyd/pf.os etc/honeyd/pf.os
