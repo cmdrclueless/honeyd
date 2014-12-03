@@ -2309,7 +2309,11 @@ udp_send(struct udp_con *con, u_char *payload, u_int len)
 
 	ip_personality(tmpl, &id);
 
-	pkt = pool_alloc(pool_pkt);
+	iplen = IP_HDR_LEN + UDP_HDR_LEN + len;
+	if (iplen > pool_pkt->size)
+		pkt = pool_alloc_size(pool_pkt, iplen);
+	else
+		pkt = pool_alloc(pool_pkt);
 
 	udp = (struct udp_hdr *)(pkt + IP_HDR_LEN);
 	udp_pack_hdr(udp, con->con_dport, con->con_sport, UDP_HDR_LEN + len);
