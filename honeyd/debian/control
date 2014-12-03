@@ -12,6 +12,6 @@ Homepage: https://github.com/cmdrclueless/honeyd
 
 Package: honeyd
 Architecture: any
-Depends: ${shlibs:Depends}, ${misc:Depends}, libdumbnet, libreadline6, libpcap, zlib1g, libevent
+Depends: ${shlibs:Depends}, ${misc:Depends}, libdumbnet1, libreadline6, libpcap0.8, zlib1g, libevent-core-2.0-5, rrdtool
 Description: <insert up to 60 chars description>
  <insert long description, indented with spaces>
