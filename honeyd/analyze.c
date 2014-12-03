@@ -51,8 +51,8 @@
 #include <string.h>
 
 #include <dnet.h>
-#include <event.h>
-#include <evdns.h>
+#include <event2/event.h>
+#include <event2/dns.h>
 
 #include "tagging.h"
 #include "histogram.h"
@@ -60,13 +60,18 @@
 #include "analyze.h"
 #include "filter.h"
 
+static void analyze_report_cb(evutil_socket_t, short, void *);
+
+extern struct event_base *honeyd_base_ev;
+static struct evdns_base *honeyd_base_evdns;
+
 char *os_report_file = NULL;
 char *port_report_file = NULL;
 char *spammer_report_file = NULL;
 char *country_report_file = NULL;
 
 static int checkpoint_doreplay;		/* externally set by honeydstats */
-static struct event ev_analyze;
+static struct event *ev_analyze;
 
 struct kctree oses;
 struct kctree ports;
@@ -270,11 +275,11 @@ analyze_init(void)
 {
 	struct timeval tv;
 
-	evtimer_set(&ev_analyze, analyze_report_cb, &ev_analyze);
+	ev_analyze = evtimer_new(honeyd_base_ev, analyze_report_cb, NULL);
 
 	timerclear(&tv);
 	tv.tv_sec = ANALYZE_REPORT_INTERVAL; 
-	evtimer_add(&ev_analyze, &tv);
+	evtimer_add(ev_analyze, &tv);
 
 	SPLAY_INIT(&oses);
 	SPLAY_INIT(&ports);
@@ -282,7 +287,7 @@ analyze_init(void)
 	SPLAY_INIT(&countries);
 	SPLAY_INIT(&country_cache);
 
-	evdns_init();
+	honeyd_base_evdns = evdns_base_new(honeyd_base_ev, 1);
 }
 
 void
@@ -433,7 +438,7 @@ analyze_country_enter(const struct addr *addr, const struct addr *dst)
 	if (!checkpoint_doreplay) {
 		struct in_addr in;
 		in.s_addr = addr->addr_ip;
-		evdns_resolve_reverse(&in, 0, analyze_country_enter_cb, state);
+		evdns_base_resolve_reverse(honeyd_base_evdns, &in, 0, analyze_country_enter_cb, state);
 	} else {
 		/*
 		 * If we are replaying a checkpoint, we do not want to do
@@ -785,15 +790,14 @@ analyze_print_report()
 	analyze_print_country_report();
 }
 
-void
-analyze_report_cb(int fd, short what, void *arg)
+static void
+analyze_report_cb(evutil_socket_t fd, short what, void *arg)
 {
-	struct event *ev = arg;
 	struct timeval tv;
 
 	timerclear(&tv);
 	tv.tv_sec = ANALYZE_REPORT_INTERVAL;
-	evtimer_add(ev, &tv);
+	evtimer_add(ev_analyze, &tv);
 
 	analyze_print_report();
 }

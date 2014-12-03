@@ -52,7 +52,7 @@
 #undef timeout_pending
 #undef timeout_initialized
 
-#include <event.h>
+#include <event2/event.h>
 
 #include "network.h"
 

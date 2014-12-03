@@ -36,9 +36,9 @@ int tcp_add_readbuf(struct tcp_con *, u_char *, u_int);
 void tcp_drain_payload(struct tcp_con *, u_int);
 void tcp_increase_buf(u_char **, u_int *, u_int);
 
-void cmd_tcp_eread(int, short, void *);
-void cmd_tcp_read(int, short, void *);
-void cmd_tcp_write(int, short, void *);
-void cmd_tcp_connect_cb(int, short, void *);
+void cmd_tcp_eread(evutil_socket_t, short, void *);
+void cmd_tcp_read(evutil_socket_t, short, void *);
+void cmd_tcp_write(evutil_socket_t, short, void *);
+void cmd_tcp_connect_cb(evutil_socket_t, short, void *);
 
 #endif

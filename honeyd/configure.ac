@@ -1,17 +1,85 @@
 # Process this file with autoconf to produce a configure script.
-AC_INIT([honeyd],[1.5c])
+AC_INIT([honeyd],[1.6a])
+
 AC_CONFIG_SRCDIR([honeyd])
 AC_CONFIG_SRCDIR(honeyd.c)
+AC_CONFIG_MACRO_DIR([m4])
 
 AC_CANONICAL_TARGET
 AC_CANONICAL_HOST
 
-AM_INIT_AUTOMAKE(honeyd, 1.5c)
+AM_INIT_AUTOMAKE
 dnl AM_CONFIG_HEADER(config.h:config.in)
 AM_CONFIG_HEADER(config.h)
 AM_MAINTAINER_MODE
 
 AC_PROG_LIBTOOL
+
+AH_TEMPLATE([HAVE_STRUCT_SOCKADDR_STORAGE],[Define if your system defines struct sockaddr_storage])
+AH_TEMPLATE([HAVE_ACCRIGHTS_IN_MSGHDR],[Define if your system uses access rights style file descriptor passing])
+AH_TEMPLATE([HAVE_CONTROL_IN_MSGHDR],[Define if your system uses ancillary data style file descriptor passing])
+AH_TEMPLATE([HAVE_BROKEN_DNET],[Define if the addr_cmp in libdnet is broken])
+AH_TEMPLATE([u_int],[Define to unsigned int if <sys/types.h> does not define])
+AH_TEMPLATE([u_int64_t],[Define to unsigned long long if <sys/types.h> does not define])
+AH_TEMPLATE([u_int32_t],[Define to unsigned int if <sys/types.h> does not define])
+AH_TEMPLATE([u_int16_t],[Define to unsigned short if <sys/types.h> does not define])
+AH_TEMPLATE([u_int8_t],[Define to unsigned char if <sys/types.h> does not define])
+
+dnl AH_TEMPLATE([HAVE_TIMERADD],[Define if timeradd is defined in <sys/time.h>])
+AH_VERBATIM([HAVE_TIMERADD],
+[/* Define if timeradd is defined in <sys/time.h> */
+#undef HAVE_TIMERADD
+#ifndef HAVE_TIMERADD
+#define timeradd(tvp, uvp, vvp)                                         \
+        do {                                                            \
+                (vvp)->tv_sec = (tvp)->tv_sec + (uvp)->tv_sec;          \
+                (vvp)->tv_usec = (tvp)->tv_usec + (uvp)->tv_usec;       \
+                if ((vvp)->tv_usec >= 1000000) {                        \
+                        (vvp)->tv_sec++;                                \
+                        (vvp)->tv_usec -= 1000000;                      \
+                }                                                       \
+        } while (0)
+#define	timersub(tvp, uvp, vvp)						\
+	do {								\
+		(vvp)->tv_sec = (tvp)->tv_sec - (uvp)->tv_sec;		\
+		(vvp)->tv_usec = (tvp)->tv_usec - (uvp)->tv_usec;	\
+		if ((vvp)->tv_usec < 0) {				\
+			(vvp)->tv_sec--;				\
+			(vvp)->tv_usec += 1000000;			\
+		}							\
+	} while (0)
+#endif /* !HAVE_TIMERADD */])
+
+dnl AH_TEMPLATE([HAVE_ISBLANK],[Define if isblank is defined in <ctype.h>])
+AH_VERBATIM([HAVE_ISBLANK],
+[/* Define if isblank is defined in <ctype.h> */
+#undef HAVE_ISBLANK
+#ifndef HAVE_ISBLANK
+#define isblank(x)	((x) == ' ' || (x) == '\t')
+#endif])
+
+AH_TEMPLATE([DL_NEED_UNDERSCORE])
+AH_TEMPLATE([NODLOPEN])
+AH_TEMPLATE([DLOPENLIBC])
+
+AH_BOTTOM([
+/* Prototypes for missing functions */
+#ifndef HAVE_STRLCPY
+size_t	 strlcpy(char *, const char *, size_t);
+#endif
+
+#ifndef HAVE_STRLCAT
+size_t	 strlcat(char *, const char *, size_t);
+#endif
+
+#ifndef HAVE_STRSEP
+char	*strsep(char **, const char *);
+#endif
+
+#ifndef HAVE_DAEMON
+int	daemon(int, int);
+#endif
+])
 
 dnl Initialize prefix.
 if test "$prefix" = "NONE"; then
@@ -45,6 +113,8 @@ AC_PROG_YACC
 AC_CHECK_LIB(dl, dlopen, [ LIBDL="-ldl"
                            LIBS="$LIBS -ldl" ],,)
 AC_SUBST(LIBDL)
+
+AC_INLINE
 
 # Checks for libraries.
 dnl Checks for libpcap
@@ -160,28 +230,28 @@ AC_ARG_WITH(libevent,
      ;;
   *)
      AC_MSG_RESULT($withval)
-     if test -f $withval/event.h -a -f $withval/libevent.a; then
+     if test -f $withval/event2/event.h -a -f $withval/libevent.a; then
         owd=`pwd`
         if cd $withval; then withval=`pwd`; cd $owd; fi
         EVENTINC="-I$withval"
         EVENTLIB="-L$withval -levent"
-     elif test -f $withval/include/event.h -a -f $withval/lib/libevent.a; then
+     elif test -f $withval/include/event2/event.h -a -f $withval/lib/libevent.a; then
         owd=`pwd`
         if cd $withval; then withval=`pwd`; cd $owd; fi
 	EVENTINC="-I$withval/include"
 	EVENTLIB="-L$withval/lib -levent"
      else
-        AC_MSG_ERROR([event.h or libevent.a not found in $withval])
+        AC_MSG_ERROR([event2/event.h or libevent.a not found in $withval])
      fi
      ;;
   esac ],
-[ if test -f ${prefix}/include/event.h; then
+[ if test -f ${prefix}/include/event2/event.h; then
      EVENTINC="-I${prefix}/include"
      EVENTLIB="-L${prefix}/lib -levent"
-  elif test -f /usr/include/event/event.h; then
+  elif test -f /usr/include/event/event2/event.h; then
      EVENTINC="-I/usr/include/event"
      EVENTLIB="-levent"
-  elif test -f /usr/include/event.h; then
+  elif test -f /usr/include/event2/event.h; then
      EVENTLIB="-levent"
   else
      AC_MSG_RESULT(no)
@@ -571,7 +641,7 @@ if test -z "$DNETCOMPAT"
 then
 	CFLAGS="$DNETINC"
 else
-	CFLAGS="-I$DNETCOMPAT $DNETINC"
+	CFLAGS="-I${srcdir}/$DNETCOMPAT $DNETINC"
 fi
 LIBS=$DNETLIB
 
@@ -683,9 +753,17 @@ if test "$HAVEMETHOD" = "no"; then
     dnl Make sure we use libld if necessary -- CPK
     LIBS="$LIBDL $LIBS"
 
-    dnl ugly, ugly hack		     
-    LIBCGUESS=`echo /lib/libc.so.*`
-    USRLIBCGUESS=`echo /usr/lib/libc.so*`
+    dnl ugly debian hack
+    if test `uname -m` = "x86_64" ; then
+       LIBCGUESS=`echo /lib/x86_64*/libc.so.*`
+       USRLIBCGUESS=`echo /usr/lib/x86_64*/libc.so*`
+    fi
+
+    if test -z "$LIBCGUESS" -a -z "$USRLIBCGUESS" ; then
+       dnl ugly, ugly hack		     
+       LIBCGUESS=`echo /lib/libc.so.*`
+       USRLIBCGUESS=`echo /usr/lib/libc.so*`
+    fi
     
     if test "$USRLIBCGUESS" = "/usr/lib/libc.so.*"; then
        USRLIBCGUESS=""

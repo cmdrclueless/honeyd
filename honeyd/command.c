@@ -59,7 +59,7 @@
 #undef timeout_pending
 #undef timeout_initialized
 
-#include <event.h>
+#include <event2/event.h>
 
 #include "honeyd.h"
 #include "template.h"
@@ -84,7 +84,7 @@ cmd_trigger_read(struct command *cmd, int size)
  	if (cmd->pfd == -1 || !cmd->fdconnected)
 		return;
 	if (size)
-		TRACE(cmd->pread.ev_fd, event_add(&cmd->pread, NULL));
+		TRACE(event_get_fd(cmd->pread), event_add(cmd->pread, NULL));
 }
 
 void
@@ -93,20 +93,20 @@ cmd_trigger_write(struct command *cmd, int size)
  	if (cmd->pfd == -1 || !cmd->fdconnected)
 		return;
 	if (size)
-		TRACE(cmd->pwrite.ev_fd, event_add(&cmd->pwrite, NULL));
+		TRACE(event_get_fd(cmd->pwrite), event_add(cmd->pwrite, NULL));
 }
 
 void
 cmd_free(struct command *cmd)
 {
-	TRACE(cmd->pread.ev_fd, event_del(&cmd->pread));
-	TRACE(cmd->pwrite.ev_fd, event_del(&cmd->pwrite));
+	TRACE(event_get_fd(cmd->pread), event_del(cmd->pread));
+	TRACE(event_get_fd(cmd->pwrite), event_del(cmd->pwrite));
 	TRACE_RESET(cmd->pfd, close(cmd->pfd));
 	cmd->pfd = -1;
 	cmd->pid = -1;
 
 	if (cmd->perrfd != -1) {
-		TRACE(cmd->peread.ev_fd, event_del(&cmd->peread));
+		TRACE(event_get_fd(cmd->peread), event_del(cmd->peread));
 		TRACE_RESET(cmd->perrfd, close(cmd->perrfd));
 		cmd->perrfd = -1;
 	}
@@ -121,15 +121,14 @@ void
 cmd_ready_fd(struct command *cmd, struct callback *cb, void *con)
 {
 	TRACE(cmd->pfd,
-	    event_set(&cmd->pread, cmd->pfd, EV_READ, cb->cb_read, con));
+	      cmd->pread  = event_new(honeyd_base_ev, cmd->pfd, EV_READ, cb->cb_read, con));
 	TRACE(cmd->pfd,
-	    event_set(&cmd->pwrite, cmd->pfd, EV_WRITE, cb->cb_write, con));
+	      cmd->pwrite = event_new(honeyd_base_ev, cmd->pfd, EV_WRITE, cb->cb_write, con));
 	cmd->fdconnected = 1;
 
 	if (cmd->perrfd != -1) {
 		TRACE(cmd->perrfd,
-		    event_set(&cmd->peread, cmd->perrfd, EV_READ, cb->cb_eread,
-			con));
+		      cmd->peread = event_new(honeyd_base_ev, cmd->perrfd, EV_READ, cb->cb_eread, con));
 	}
 }
 
@@ -153,8 +152,7 @@ cmd_proxy_getinfo(char *address, int type, short port)
 }
 
 int
-cmd_proxy_connect(struct tuple *hdr, struct command *cmd, struct addrinfo *ai,
-    void *con)
+cmd_proxy_connect(struct tuple *hdr, struct command *cmd, struct addrinfo *ai, void *con)
 {
 	char ntop[NI_MAXHOST], strport[NI_MAXSERV];
 	char *host = ntop, *port = strport;
@@ -192,12 +190,12 @@ cmd_proxy_connect(struct tuple *hdr, struct command *cmd, struct addrinfo *ai,
 		return (-1);
 	}
 
-	TRACE(fd, event_set(&cmd->pwrite, fd, EV_WRITE, cb->cb_connect, con));
-	TRACE(cmd->pwrite.ev_fd, event_add(&cmd->pwrite, &tv));
+	TRACE(fd, cmd->pwrite = event_new(honeyd_base_ev, fd, EV_WRITE, cb->cb_connect, con));
+	TRACE(event_get_fd(cmd->pwrite), event_add(cmd->pwrite, &tv));
 
 	if (getnameinfo(ai->ai_addr, ai->ai_addrlen,
-		ntop, sizeof(ntop), strport, sizeof(strport),
-		NI_NUMERICHOST|NI_NUMERICSERV) != 0) {
+			ntop, sizeof(ntop), strport, sizeof(strport),
+			NI_NUMERICHOST|NI_NUMERICSERV) != 0) {
 
 		host = "<hosterror>";
 		port = "<porterror>";
@@ -431,8 +429,8 @@ cmd_fork(struct tuple *hdr, struct command *cmd, struct template *tmpl,
 
 	cmd_ready_fd(cmd, cb, con);
 
-	TRACE(cmd->pread.ev_fd, event_add(&cmd->pread, NULL));
-	TRACE(cmd->peread.ev_fd, event_add(&cmd->peread, NULL));
+	TRACE(event_get_fd(cmd->pread),  event_add(cmd->pread, NULL));
+	TRACE(event_get_fd(cmd->peread), event_add(cmd->peread, NULL));
 
 	honeyd_nchildren++;
 
@@ -487,7 +485,7 @@ cmd_python(struct tuple *hdr, struct command *cmd, void *con)
 
 	cmd_ready_fd(cmd, cb, con);
 
-	TRACE(cmd->pread.ev_fd, event_add(&cmd->pread, NULL));
+	TRACE(event_get_fd(cmd->pread), event_add(cmd->pread, NULL));
 
 	return (pair[1]);
 }
@@ -559,7 +557,7 @@ cmd_subsystem(struct template *tmpl, struct subsystem *sub,
 	cmd->perrfd = -1;
 	cmd_ready_fd(cmd, &subsystem_cb, sub);
 
-	TRACE(cmd->pread.ev_fd, event_add(&cmd->pread, NULL));
+	TRACE(event_get_fd(cmd->pread), event_add(cmd->pread, NULL));
 
 	honeyd_nchildren++;
 
@@ -625,9 +623,8 @@ cmd_subsystem_schedule_connect(struct tuple *hdr, struct command *cmd,
 
 	TAILQ_INSERT_TAIL(&port->pending, tmp, next);
 
-	TRACE(port->sub_fd, event_set(&tmp->ev, port->sub_fd, EV_WRITE,
-	    cmd_subsystem_connect_cb, tmp));
-	TRACE(tmp->ev.ev_fd, event_add(&tmp->ev, NULL));
+	TRACE(port->sub_fd, tmp->ev = event_new(honeyd_base_ev, port->sub_fd, EV_WRITE, cmd_subsystem_connect_cb, tmp));
+	TRACE(event_get_fd(tmp->ev), event_add(tmp->ev, NULL));
 
 	syslog(LOG_DEBUG,
 	    "Scheduling connection establishment: %s -> subsystem \"%s\"",
@@ -727,8 +724,7 @@ cmd_subsystem_localconnect(struct tuple *hdr, struct command *cmd,
 
 		/* Confirm success of failure */
 		res = fd == -1 ? -1 : 0;
-		TRACE(sub->cmd.pfd,
-		    atomicio(write, sub->cmd.pfd, &res, 1));
+		TRACE(sub->cmd.pfd, atomicio(write, sub->cmd.pfd, &res, 1));
 		if (fd == -1)
 			return (-1);
 

@@ -55,11 +55,14 @@
 #include <assert.h>
 #include <syslog.h>
 
-#include <event.h>
+#include <event2/event.h>
+#include <event2/buffer.h>
+#include <event2/bufferevent.h>
 #include <dnet.h>
 
 #include "rrdtool.h"
 
+extern struct event_base *honeyd_base_ev;
 extern rand_t *honeyd_rand;
 
 
@@ -75,26 +78,29 @@ rrdtool_evb_readcb(struct bufferevent *bev, void *parameter)
 {
 	struct rrdtool_drv *req = parameter;
 
-	char *start, *end;
+	struct evbuffer * input = bufferevent_get_input(bev);
 
-	start = EVBUFFER_DATA(bev->input);
-	if ((end = evbuffer_find(bev->input, "OK ", 3)) == NULL)
-		return;
-	
-	/* Find the end of the line */
-	if (strchr(end, '\n') == NULL)
+	struct evbuffer_ptr end = evbuffer_search(input, "OK", 3, NULL);
+	if (end.pos == -1)
 		return;
 
-	/* Communicate everything before the OK to the call back */
-	*end = '\0';
+	size_t eol_len;
+	struct evbuffer_ptr eol = evbuffer_search_eol(input, &end, &eol_len, EVBUFFER_EOL_LF);
+	if (eol.pos == -1)
+		return;
 
-	rrdtool_command_done(req, start);
+	char * data = (char *)malloc(end.pos + 1);
+	evbuffer_copyout(input, data, end.pos);
+	data[end.pos] = '\0';
+
+	rrdtool_command_done(req, data);
+	free(data);
 	
 	/* 
 	 * We drain all the input because we do not currently interleave
 	 * commands.
 	 */
-	evbuffer_drain(bev->input, -1);
+	evbuffer_drain(input, evbuffer_get_length(input));
 
 	return;
 }
@@ -133,7 +139,7 @@ rrdtool_restart(int fd, short what, void *arg)
 		syslog(LOG_NOTICE, "Respawing rrdtool too quickly");
 		tv.tv_sec = 5;
 		tv.tv_usec = 0;
-		evtimer_add(&drv->ev_timeout, &tv);
+		evtimer_add(drv->ev_timeout, &tv);
 		return;
 	}
 
@@ -146,9 +152,7 @@ rrdtool_restart(int fd, short what, void *arg)
 	} else {
 		struct rrdtool_command *cmd = TAILQ_FIRST(&drv->commands);
 
-		/* This is yet another bad hack */
-		drv->evb->ev_read.ev_fd = drv->fd;
-		drv->evb->ev_write.ev_fd = drv->fd;
+		bufferevent_setfd(drv->evb, drv->fd);
 		bufferevent_enable(drv->evb, EV_WRITE);
 
 		/* Restart the last command */
@@ -187,17 +191,17 @@ rrdtool_init(const char *path_rrdtool)
 		goto error;
 	}
 
-	if ((rrd->evb = bufferevent_new(rrd->fd,
-		 rrdtool_evb_readcb, rrdtool_evb_writecb, rrdtool_evb_errcb,
-		 rrd)) == NULL)
+	if ((rrd->evb = bufferevent_socket_new(honeyd_base_ev, rrd->fd, BEV_OPT_CLOSE_ON_FREE|BEV_OPT_THREADSAFE)) == NULL)
 		goto error;
+
+	bufferevent_setcb(rrd->evb, rrdtool_evb_readcb, rrdtool_evb_writecb, rrdtool_evb_errcb, rrd);
 
 	TAILQ_INIT(&rrd->commands);
 
 	bufferevent_disable(rrd->evb, EV_READ);
 	bufferevent_enable(rrd->evb, EV_WRITE);
 
-	evtimer_set(&rrd->ev_timeout, rrdtool_restart, rrd);
+	rrd->ev_timeout = evtimer_new(honeyd_base_ev, rrdtool_restart, rrd);
 
 	return rrd;
 
@@ -218,7 +222,7 @@ rrdtool_init(const char *path_rrdtool)
 void
 rrdtool_free(struct rrdtool_drv *drv)
 {
-	event_del(&drv->ev_timeout);
+	event_del(drv->ev_timeout);
 
 	bufferevent_free(drv->evb);
 
@@ -532,7 +536,7 @@ rrdtool_test_done(char *something, void *arg)
 
 	timerclear(&tv);
 	tv.tv_sec = 1;
-	event_loopexit(&tv);
+	event_base_loopexit(honeyd_base_ev, &tv);
 }
 
 void
@@ -580,7 +584,8 @@ rrdtool_test(void)
 	    tv_now.tv_sec, tv.tv_sec);
 	rrdtool_command(drv, line, rrdtool_test_done, NULL);
 
-	event_dispatch();
+	honeyd_base_ev = event_base_new();
+	event_base_dispatch(honeyd_base_ev);
 
 	if (access("/tmp/honeyd_myrouter.gif", R_OK) == -1)
 		errx(1, "%s: graph creation failed", __func__);

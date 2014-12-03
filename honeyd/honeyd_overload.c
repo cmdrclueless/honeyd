@@ -93,7 +93,7 @@
 #undef timeout_pending
 #undef timeout_initialized
 
-#include <event.h>
+#include <event2/event.h>
 
 #include "honeyd.h"
 #include "template.h"
@@ -1125,7 +1125,7 @@ accept(int sock, struct sockaddr *addr, socklen_t *addrlen)
 {
 	struct fd *nfd;
 	struct bundle bundle;
-	socklen_t salen;
+	size_t salen;
 	int fd;
 
 	INIT;

@@ -67,7 +67,9 @@
 #undef timeout_pending
 #undef timeout_initialized
 
-#include <event.h>
+#include <event2/event.h>
+#include <event2/tag.h>
+#include <event2/buffer.h>
 
 #include "honeyd.h"
 #include "tagging.h"
@@ -201,14 +203,14 @@ measurement_process(struct user *user, struct evbuffer *evbuf)
 	uint32_t counter;
 	struct timeval tv_start, tv_end, tv_diff;
 	time_t tstart;
-	uint8_t tag;
+	uint32_t tag;
 
-	if (tag_unmarshal_int(evbuf, M_COUNTER, &counter) == -1)
+	if (evtag_unmarshal_int(evbuf, M_COUNTER, &counter) == -1)
 		return (-1);
-	if (tag_unmarshal_timeval(evbuf, M_TV_START, &tv_start) == -1)
+	if (evtag_unmarshal_timeval(evbuf, M_TV_START, &tv_start) == -1)
 		return (-1);
 
-	if (tag_unmarshal_timeval(evbuf, M_TV_END, &tv_end) == -1)
+	if (evtag_unmarshal_timeval(evbuf, M_TV_END, &tv_end) == -1)
 		return (-1);
 
 	timersub(&tv_end, &tv_start, &tv_diff);
@@ -235,7 +237,8 @@ measurement_process(struct user *user, struct evbuffer *evbuf)
 	/* Write the data that we previously appended */
 	if (checkpoint_fd != -1) {
 		/* XXX - this might block */
-		evbuffer_write(checkpoint_evbuf, checkpoint_fd);
+		if (checkpoint_evbuf != NULL)
+			evbuffer_write(checkpoint_evbuf, checkpoint_fd);
 	} else if (checkpoint_doreplay &&
 	    timercmp(&checkpoint_tv, &tv_end, <)) {
 		checkpoint_tv = tv_end;
@@ -244,9 +247,9 @@ measurement_process(struct user *user, struct evbuffer *evbuf)
 	user->nreports++;
 	user->seqnr = counter;
 
-	while (tag_peek(evbuf, &tag) != -1) {
+	while (evtag_peek(evbuf, &tag) != -1) {
 		if (tag != M_RECORD) {
-			tag_consume(evbuf);
+			evtag_consume(evbuf);
 			continue;
 		}
 
@@ -261,21 +264,32 @@ int
 signature_process(struct evbuffer *evbuf)
 {
 	struct user *user = NULL, tmpuser;
-	uint8_t tag;
+	uint32_t tag;
 	struct evbuffer *tmp = NULL;
 	char *username = NULL;
 	u_char digest[SHA1_DIGESTSIZE];
 	int res = -1;
 
 	if (checkpoint_fd != -1) {
-		evbuffer_drain(checkpoint_evbuf, -1);
-		evbuffer_add(checkpoint_evbuf,
-		    EVBUFFER_DATA(evbuf), EVBUFFER_LENGTH(evbuf));
+		if (checkpoint_evbuf == NULL) {
+			checkpoint_evbuf = evbuffer_new();
+		}
+		else {
+			evbuffer_drain(checkpoint_evbuf, evbuffer_get_length(checkpoint_evbuf));
+		}
+
+		size_t len = evbuffer_get_length(evbuf);
+		void * data = malloc(len);
+		if (data) {
+			evbuffer_copyout(evbuf, data, len);
+			evbuffer_add(checkpoint_evbuf, data, len);
+			free(data);
+		}
 	}
 
-	if (tag_unmarshal_string(evbuf, SIG_NAME, &username) == -1)
+	if (evtag_unmarshal_string(evbuf, SIG_NAME, &username) == -1)
 		goto out;
-	if (tag_unmarshal_fixed(evbuf, SIG_DIGEST, digest,
+	if (evtag_unmarshal_fixed(evbuf, SIG_DIGEST, digest,
 		sizeof(digest)) == -1)
 		goto out;
 
@@ -287,22 +301,24 @@ signature_process(struct evbuffer *evbuf)
 
 	if ((tmp = evbuffer_new()) == NULL)
 		err(1, "%s: evbuffer_new");
-	if (tag_unmarshal(evbuf, &tag, tmp) == -1)
+	if (evtag_unmarshal(evbuf, &tag, tmp) == -1)
 		goto out;
 
 	/* Validate signature */
-	if (!hmac_verify(&user->hmac, digest, sizeof(digest),
-		EVBUFFER_DATA(tmp), EVBUFFER_LENGTH(tmp))) {
-		syslog(LOG_WARNING, "Bad signature on data from user '%s'",
-		    username);
+	size_t len = evbuffer_get_length(tmp);
+	void * data = malloc(len);
+	evbuffer_copyout(tmp, data, len);
+	if (!hmac_verify(&user->hmac, digest, sizeof(digest), data, len)) {
+		free(data);
+		syslog(LOG_WARNING, "Bad signature on data from user '%s'", username);
 		goto out;
 	}
+	free(data);
 
 	switch(tag) {
 	case SIG_COMPRESSED_DATA:
 		if (stats_decompress(tmp) == -1) {
-			syslog(LOG_WARNING,
-			    "failed to decompress for user '%s'", username);
+			syslog(LOG_WARNING, "failed to decompress for user '%s'", username);
 			goto out;
 		}
 		/* FALLTHROUGH */
@@ -330,31 +346,41 @@ signature_process(struct evbuffer *evbuf)
 static int
 signature_length(struct evbuffer *evbuf)
 {
-	struct evbuffer tmp;
 	uint32_t length, tlen;
+	struct evbuffer *tmp = evbuffer_new();
 
-	tmp = *evbuf;
+	size_t len = evbuffer_get_length(evbuf);
+	void * data = malloc(len);
+	evbuffer_copyout(evbuf, data, len);
+
+	evbuffer_add(tmp, data, len);
+	free(data);
 
 	/* name */
-	if (tag_peek_length(&tmp, &tlen) == -1 || EVBUFFER_LENGTH(&tmp) < tlen)
+	if (evtag_peek_length(tmp, &tlen) == -1 || evbuffer_get_length(tmp) < tlen) {
+		evbuffer_free(tmp);
 		return (-1);
+	}
 		
+	evbuffer_drain(tmp, tlen);
 	length = tlen;
-	tmp.buffer += tlen;
-	tmp.off -= tlen;
 
 	/* signature */
-	if (tag_peek_length(&tmp, &tlen) == -1 || EVBUFFER_LENGTH(&tmp) < tlen)
+	if (evtag_peek_length(tmp, &tlen) == -1 || evbuffer_get_length(tmp) < tlen) {
+		evbuffer_free(tmp);
 		return (-1);
+	}
 		
+	evbuffer_drain(tmp, tlen);
 	length += tlen;
-	tmp.buffer += tlen;
-	tmp.off -= tlen;
 
 	/* data */
-	if (tag_peek_length(&tmp, &tlen) == -1 || EVBUFFER_LENGTH(&tmp) < tlen)
+	if (evtag_peek_length(tmp, &tlen) == -1 || evbuffer_get_length(tmp) < tlen) {
+		evbuffer_free(tmp);
 		return (-1);
+	}
 		
+	evbuffer_free(tmp);
 	length += tlen;
 
 	return (length);
@@ -375,8 +401,7 @@ checkpoint_replay(int fd)
 	while ((nread = evbuffer_read(evbuf, fd, 4096)) > 0) {
 		int length;
 
-		while ((length = signature_length(evbuf)) != -1 &&
-		    EVBUFFER_LENGTH(evbuf) >= length) {
+		while ((length = signature_length(evbuf)) != -1 && evbuffer_get_length(evbuf) >= length) {
 				signature_process(evbuf);
 		}
 	}

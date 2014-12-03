@@ -41,6 +41,8 @@
 #include <sys/socket.h>
 #ifdef HAVE_SYS_TIME_H
 #include <sys/time.h>
+#elif HAVE_TIME_H
+#include <time.h>
 #endif
 #include <netinet/in.h>
 
@@ -60,8 +62,10 @@
 #include <err.h>
 
 #include <pcre.h>
-#include <event.h>
-#include <evdns.h>
+#include <event2/event.h>
+#include <event2/dns.h>
+#include <event2/buffer.h>
+#include <event2/bufferevent.h>
 #include <dnet.h>
 
 #include "util.h"
@@ -77,6 +81,8 @@ extern int debug;
 } while (0)
 
 /* globals */
+extern struct event_base *honeyd_base_ev;
+extern struct evdns_base *honeyd_base_evdns;
 
 FILE *flog_proxy = NULL;	/* log the proxy transactions somewhere */
 static pcre *re_connect;	/* regular expression to match connect */
@@ -96,15 +102,9 @@ proxy_logline(struct proxy_ta *ta)
 	char *uri = kv_find(&ta->dictionary, "$rawuri");
 
 	if (!strcasecmp("connect", cmd)) {
-		snprintf(line, sizeof(line),
-		    "%d %s: CONNECT %s:%s",
-		    time(NULL), srcipaddress,
-		    host, port);
+		snprintf(line, sizeof(line), "%ld %s: CONNECT %s:%s", time(NULL), srcipaddress, host, port);
 	} else {
-		snprintf(line, sizeof(line),
-		    "%d %s: GET %s:%s%s", 
-		    time(NULL), srcipaddress,
-		    host, port, uri);
+		snprintf(line, sizeof(line), "%ld %s: GET %s:%s%s", time(NULL), srcipaddress, host, port, uri);
 	}
 
 	return (line);
@@ -241,12 +241,8 @@ void
 proxy_remote_readcb(struct bufferevent *bev, void *arg)
 {
 	struct proxy_ta *ta = arg;
-	struct evbuffer *buffer = EVBUFFER_INPUT(bev);
-	unsigned char *data = EVBUFFER_DATA(buffer);
-	size_t len = EVBUFFER_LENGTH(buffer);
-
-	bufferevent_write(ta->bev, data, len);
-	evbuffer_drain(buffer, len);
+	struct evbuffer *buffer = bufferevent_get_input(bev);
+	bufferevent_write_buffer(ta->bev, buffer);
 }
 
 void
@@ -258,11 +254,11 @@ void
 proxy_remote_errorcb(struct bufferevent *bev, short what, void *arg)
 {
 	struct proxy_ta *ta = arg;
-	struct evbuffer *buffer = EVBUFFER_OUTPUT(ta->bev);
+	struct evbuffer *buffer = bufferevent_get_output(ta->bev);
 	fprintf(stderr, "%s: called with %p, freeing\n", __func__, arg);
 
 	/* If we still have data to write; we just wait for the flush */
-	if (EVBUFFER_LENGTH(buffer)) {
+	if (evbuffer_get_length(buffer)) {
 		/* Shutdown this site at least - XXX: maybe call shutdown */
 		bufferevent_disable(bev, EV_READ|EV_WRITE);
 
@@ -317,14 +313,13 @@ proxy_connect_cb(int fd, short what, void *arg)
 		return;
 	}
 
-	ta->remote_bev = bufferevent_new(ta->remote_fd,
-	    proxy_remote_readcb, proxy_remote_writecb,
-	    proxy_remote_errorcb, ta);
+	ta->remote_bev = bufferevent_socket_new(honeyd_base_ev, ta->remote_fd, BEV_OPT_CLOSE_ON_FREE|BEV_OPT_THREADSAFE);
 	if (ta->bev == NULL) {
 		close(fd);
 		proxy_ta_free(ta);
 		return;
 	}
+	bufferevent_setcb(ta->remote_bev, proxy_remote_readcb, proxy_remote_writecb, proxy_remote_errorcb, ta);
 
 	/* If this get is not allowed, we are going to corrupt the data */
 	if (!proxy_allowed_get(ta, allowedhosts))
@@ -385,7 +380,7 @@ proxy_connect(struct proxy_ta *ta, char *host, int port)
 	}
 
 	/* One handy event to get called back on this */
-	event_once(ta->remote_fd, EV_WRITE, proxy_connect_cb, ta, NULL);
+	event_base_once(honeyd_base_ev, ta->remote_fd, EV_WRITE, proxy_connect_cb, ta, NULL);
 }
 
 void
@@ -450,8 +445,7 @@ proxy_handle_get(struct proxy_ta *ta)
 	}
 
 	/* Try to resolve the domain name */
-	evdns_resolve_ipv4(kv_find(&ta->dictionary, "$host"), 0,
-	    proxy_handle_get_cb, ta);
+	evdns_base_resolve_ipv4(honeyd_base_evdns, kv_find(&ta->dictionary, "$host"), 0, proxy_handle_get_cb, ta);
 	ta->dns_pending = 1;
 	return (0);
 }
@@ -539,8 +533,7 @@ proxy_handle_connect(struct proxy_ta *ta)
 	}
 
 	/* Try to resolve the domain name */
-	evdns_resolve_ipv4(kv_find(&ta->dictionary, "$host"), 0,
-	    proxy_handle_connect_cb, ta);
+	evdns_base_resolve_ipv4(honeyd_base_evdns, kv_find(&ta->dictionary, "$host"), 0, proxy_handle_connect_cb, ta);
 	ta->dns_pending = 1;
 	return (0);
 }
@@ -597,23 +590,29 @@ proxy_handle(struct proxy_ta *ta, char *line)
 char *
 proxy_readline(struct bufferevent *bev)
 {
-	struct evbuffer *buffer = EVBUFFER_INPUT(bev);
-	char *data = EVBUFFER_DATA(buffer);
-	size_t len = EVBUFFER_LENGTH(buffer);
+	struct evbuffer *buffer = bufferevent_get_input(bev);
+	char *data;
+	size_t len;
 	char *line;
 	int i;
 
+	data = (char *)malloc(len = evbuffer_get_length(buffer));
+	evbuffer_copyout(buffer, data, len);
+	
 	for (i = 0; i < len; i++) {
 		if (data[i] == '\r' || data[i] == '\n')
 			break;
 	}
 	
-	if (i == len)
+	if (i == len) {
+		free(data);
 		return (NULL);
+	}
 
 	if ((line = malloc(i + 1)) == NULL) {
 		fprintf(stderr, "%s: out of memory\n", __func__);
 		evbuffer_drain(buffer, i);
+		free(data);
 		return (NULL);
 	}
 
@@ -628,6 +627,7 @@ proxy_readline(struct bufferevent *bev)
 			i += 1;
 	}
 
+	free(data);
 	evbuffer_drain(buffer, i + 1);
 
 	return (line);
@@ -640,16 +640,18 @@ proxy_readcb(struct bufferevent *bev, void *arg)
 	char *line;
 
 	if (ta->justforward) {
-		struct evbuffer *input = EVBUFFER_INPUT(bev);
-		char *data = EVBUFFER_DATA(input);
-		size_t len = EVBUFFER_LENGTH(input);
+		struct evbuffer *input = bufferevent_get_input(bev);
+		size_t len = evbuffer_get_length(input);
+		char * data = (char *)malloc(len);
+
+		evbuffer_copyout(input, data, len);
 		if (ta->corrupt) {
-			bufferevent_write(ta->remote_bev,
-			    proxy_corrupt(data, len), len);
+			bufferevent_write(ta->remote_bev, proxy_corrupt(data, len), len);
 		} else {
 			bufferevent_write(ta->remote_bev, data, len);
 		}
 		evbuffer_drain(input, len);
+		free(data);
 		return;
 	}
 
@@ -752,10 +754,10 @@ proxy_ta_new(int fd, struct sockaddr *sa, socklen_t salen,
 	ta->salen = salen;
 
 	ta->fd = fd;
-	ta->bev = bufferevent_new(fd,
-	    proxy_readcb, proxy_writecb, proxy_errorcb, ta);
+	ta->bev = bufferevent_socket_new(honeyd_base_ev, fd, BEV_OPT_CLOSE_ON_FREE|BEV_OPT_THREADSAFE);
 	if (ta->bev == NULL)
 		goto error;
+	bufferevent_setcb(ta->bev, proxy_readcb, proxy_writecb, proxy_errorcb, ta);
 
 	/* Create our tiny dictionary */
 	if (lsa != NULL) {
@@ -811,7 +813,7 @@ accept_socket(int fd, short what, void *arg)
 }
 
 void
-proxy_bind_socket(struct event *ev, u_short port)
+proxy_bind_socket(struct event **ev, u_short port)
 {
 	int fd;
 
@@ -822,8 +824,8 @@ proxy_bind_socket(struct event *ev, u_short port)
 		err(1, "%s: listen failed: %d", __func__, port);
 
 	/* Schedule the socket for accepting */
-	event_set(ev, fd, EV_READ | EV_PERSIST, accept_socket, NULL);
-	event_add(ev, NULL);
+	*ev = event_new(honeyd_base_ev, fd, EV_READ | EV_PERSIST, accept_socket, NULL);
+	event_add(*ev, NULL);
 
 	fprintf(stderr, 
 	    "Bound to port %d\n"

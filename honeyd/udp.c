@@ -54,7 +54,7 @@
 #undef timeout_pending
 #undef timeout_initialized
 
-#include <event.h>
+#include <event2/event.h>
 
 #include "honeyd.h"
 #include "udp.h"
@@ -88,7 +88,7 @@ cmd_udp_eread(int fd, short which, void *arg)
 	
 	honeyd_log_service(honeyd_servicefp, IP_PROTO_UDP, &con->conhdr, line);
 
-	event_add(&cmd->peread, NULL);
+	event_add(cmd->peread, NULL);
 }
 
 void
@@ -126,11 +126,20 @@ udp_add_readbuf(struct udp_con *con, u_char *dat, u_int datlen)
 void
 cmd_udp_read(int fd, short which, void *arg)
 {
+	static u_char *buf = NULL;
+	static int bufsz = 1<<16;
+
 	struct udp_con *con = arg;
-	u_char buf[2048];
 	ssize_t len;
 
-	TRACE(fd, len = read(fd, buf, sizeof(buf)));
+	if (!buf) {
+		buf = malloc(bufsz); /* largest possible UDP packet */
+		if (!buf)
+			return;
+	}
+	memset(buf, 0, bufsz);
+
+	TRACE(fd, len = recv(fd, buf, bufsz, 0));
 	if (len == -1) {
 		if (errno == EINTR || errno == EAGAIN)
 			goto again;
@@ -156,7 +165,7 @@ cmd_udp_write(int fd, short which, void *arg)
 	buf = TAILQ_FIRST(&con->incoming);
 	if (buf == NULL)
 		return;
-	TRACE(fd, len = write(fd, buf->buf, buf->len));
+	TRACE(fd, len = send(fd, buf->buf, buf->len, 0));
 	if (len == -1) {
 		if (errno == EINTR || errno == EAGAIN)
 			goto again;

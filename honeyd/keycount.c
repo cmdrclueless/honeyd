@@ -50,7 +50,7 @@
 #include <string.h>
 
 #include <dnet.h>
-#include <event.h>
+#include <event2/event.h>
 
 #include "histogram.h"
 #include "keycount.h"
